@@ -21,7 +21,24 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
 
   # replace spaces with "." in the provided IMO.column string,
   # to match the auto-replacement in read.csv
+  # also remove double .. and leading/trailing .
+  raw.IMO.column <- IMO.column
   IMO.column <- gsub(' ','.',IMO.column)
+  IMO.column <- gsub('\\.+','.',IMO.column)
+  IMO.column <- gsub('^\\.','',IMO.column)
+  IMO.column <- gsub('\\.$','',IMO.column)
+
+  if(!(IMO.column %in% colnames(x))){
+    if(IMO.column != raw.IMO.column) {
+      replacement.string <- sprintf('("%s" after replacing spaces/non-alphanumeric with ".") ',IMO.column)
+    } else {
+      replacement.string <- ''
+    }
+    stop(sprintf('\nProvided IMO column header "%s" %snot found in input file headers: %s.\n\n',
+                 raw.IMO.column,
+                 replacement.string,
+                 paste(colnames(x),collapse=', ')))
+  }
   
   # rename the provided IMO number column to 'IMO.Number'
   colnames(x)[colnames(x) == IMO.column] <- 'IMO.Number'
@@ -484,7 +501,7 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
       }
     } else if(imputation.method == 'rf'){
       nreps <- 20 # chose these values using results from  lib/dev/test_imputation_methods.r 
-      maxit <- 1 
+      maxit <- 2
       if(verbose > 0) cat('Running "rf" imputation of missing values, this can be slow...\n')
       # run MICE package imputation 10 times
       # note: this is slow for large data sets
@@ -495,6 +512,12 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
         common.columns <- intersect(colnames(x), colnames(imputation.lookup.table))
         tmpx <- rbind(x[,common.columns],imputation.lookup.table[,common.columns])
         tmpx <- tmpx[,colnames(tmpx) != "IMO.Number"]
+        na.ix <- which(is.na(tmpx$powerkwaux))
+        if(length(na.ix) == 1){
+          # if there is only one NA, the mice algorithm fails.
+          # Therefore append an extra dummy row that is a copy of the one NA row
+          tmpx <- rbind(tmpx, tmpx[na.ix,,drop=F])
+        }
         yfix <- mice(tmpx,m=nreps,maxit=maxit,method='rf') # 10 iterations, then average them
       } else {
         yfix <- mice(x[,colnames(x) != "IMO.Number"],m=nreps,maxit=maxit,method='rf') # 10 iterations, then average them

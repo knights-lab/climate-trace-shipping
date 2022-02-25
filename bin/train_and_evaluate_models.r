@@ -50,7 +50,7 @@ option_list <- list(
               help="Use hard-coded hyperparams and skip model tuning and eval entirely, only train final model. Implies skip_tuning. [default %default]"),
   make_option(c("--skip_final_model"), action="store_true", default=FALSE,
               help="Skip training final model. Otherwise, final model will be saved to <outdir>/final_model.rdata. Required when evaluating multiple models. [default %default]"),
-  make_option(c("--imputation_method"), default='quick',
+  make_option(c("--imputation_method"), default='rf',
               help="Imputation method: quick (median/mode) or rf (much more accurate but very slow) [default \"%default\"]"),
   make_option(c("--save_preprocessed_data"), action="store_true", default=FALSE,
               help="Save preprocessed data file. This can be useful when you want to want to rerun training but don't want to rerun imputation of missing values. File will be saved to <outdir>/preprocessed.csv [default \"%default\"]"),

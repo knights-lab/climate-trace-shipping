@@ -27,7 +27,7 @@ option_list <- list(
               help = "Ship metadata file, e.g. \"IHS complete Ship Data.csv,\" with columns IMO Numbers in column 1. [required]"),
   make_option(c("-M", "--model_file"), 
               help = "Predictive model in .rdata format, output of train_and_evaluate_models.r. [required]"),
-  make_option(c("--imputation_method"), default='quick',
+  make_option(c("--imputation_method"), default='rf',
               help="Imputation method: quick (median/mode) or rf (much more accurate but very slow) [default \"%default\"]"),
   make_option(c("-o", "--output_file"),
               help = "Output csv file [required]"),
