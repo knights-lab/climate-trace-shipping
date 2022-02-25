@@ -21,12 +21,14 @@ set.seed(123456)
 option_list <- list(
   make_option(c("-i", "--input"),
               help="Input training data CSV. Must have a column containing IMO Numbers. Currently assumes this is EU reporting data with additional columns Ship.type, distance.traveled.nm, average.speed.nm.hr, Annual.Total.time.spent.at.sea.hours, and Annual.average.CO.emissions.per.distance.kg.CO.n.mile [required]"),
-  make_option(c("-I", "--IMO_columm"), default='IMO.Number',
+  make_option(c("-I", "--IMO_column"), default='IMO.Number',
               help="Name of column containing IMO Numbers [default \"%default\"]"),
   make_option(c("-m", "--metadata"), 
               help = "Ship metadata file, e.g. \"IHS complete Ship Data.csv,\" with columns IMO Numbers in column 1. [required]"),
   make_option(c("-M", "--model_file"), 
               help = "Predictive model in .rdata format, output of train_and_evaluate_models.r. [required]"),
+  make_option(c("--imputation_method"), default='quick',
+              help="Imputation method: quick (median/mode) or rf (much more accurate but very slow) [default \"%default\"]"),
   make_option(c("-o", "--output_file"),
               help = "Output csv file [required]"),
   make_option(c("-v", "--verbose"), action="store_true", default=FALSE,
@@ -40,36 +42,43 @@ opt <- parse_args(OptionParser(option_list=option_list))
 source(paste(CTHOME,'/lib/training-general.r',sep=''))
 source(paste(CTHOME,'/lib/load.r',sep=''))
 
-# Create output directory
+# Create output directory if needed
 dir.create(dirname(opt$output_file),showWarnings = FALSE)
-
-# load data (can comment this out if loaded to save time)
-if(opt$verbose) cat('Loading ship data and metadata...\n')
-x <- load.EU.MRV.ship.data.and.metadata(ship.filepath=opt$input,
-                                 metadata.filepath=opt$metadata,
-                                 outdir='.',
-                                 imputation.method='quick')
-
-drop.names <- ''
-# Drop non-static features (those generated annually)
-drop.names <- c(drop.names,c('distance.traveled','time.at.sea','average.speed'))
-
-# Drop unhelpful predictors and the outcome variable, if present
-predictor.names <- setdiff(colnames(x),c('IMO.Number','flagname','reporting.period','shiptype3','shiptype4','kg.CO2.per.nm',drop.names))
-
 
 if(opt$verbose) cat('Loading model from',opt$model_file,'\n')
 load(opt$model_file)
 
+# load new data
+if(opt$verbose) cat('Loading ship data and metadata...\n')
+newx <- load.generic.ship.data.and.metadata(opt$input,
+                                            IMO.column=opt$IMO_column,
+                                            metadata.filepath=opt$metadata,
+                                            remove.outliers=FALSE,
+                                            imputation.method=opt$imputation_method,
+                                            imputation.lookup.table=final.model.container$train.x,
+                                            verbose=opt$verbose)
+
+
+
+
 if(opt$verbose) cat('Running prediction...\n')
 
-print(system.time(yhat <- predict.from.saved.model(x[,predictor.names],
-                                                   final.model.container$final.model,
-                                                   final.model.container$model.type,
+print(system.time(yhat <- predict.from.saved.model(newx,
+                                                   final.model.container,
                                                    verbose=c(0,1)[as.numeric(opt$verbose) + 1]
                                                    )
 ))
 
+
 cat('Writing predictions to',opt$output_file,'...\n')
-newx <- cbind(x,predicted.kg.CO2.per.nm=yhat)
-write.csv(newx,opt$output_file, row.names=FALSE)
+# load original input table, add predicted values to end
+raw.x <- read.csv(opt$input)
+# add empty prediction column
+raw.x <- cbind(raw.x,predicted.kg.CO2.per.nm=rep(0,nrow(raw.x)))
+opt$IMO_column <- gsub(' ','.', opt$IMO_column)
+
+# fill in predictions or NA if ship was missing from metadata
+raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),'predicted.kg.CO2.per.nm'] <- yhat
+raw.x[!(raw.x[,opt$IMO_column] %in% newx$IMO.Number),'predicted.kg.CO2.per.nm'] <- NA
+write.csv(raw.x,opt$output_file, row.names=FALSE, quote=F)
+

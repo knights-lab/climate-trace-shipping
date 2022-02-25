@@ -50,7 +50,6 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
                                        linear.predictor=NULL, # predictor variable for linear models
                                        linear.categories=NULL,
                                        final.model=TRUE, # Train a final model on all data
-                                       save.results=NA, # export eval results .rdata here
                                        verbose=1
 )
 {
@@ -122,7 +121,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
       # store yhat
       yhat[[models[i]]][[rep.i]] <- yhat.test
 
-      cat('NRMSE =',rmses[i,rep.i],'MAE =',maes[i,rep.i],'\n')
+      if(verbose > 0) cat('NRMSE =',rmses[i,rep.i],'MAE =',maes[i,rep.i],'\n')
       
       if(FALSE){
         # TO DO: add optional visualizations of feature importance
@@ -183,6 +182,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
       
     }
   }
+  if(verbose > 0) cat('Generating final model...\n')
   
   if(final.model){
     # if requested, train final model on all data using best params
@@ -213,6 +213,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
   } else{
     final.model <- NULL
   }
+  
   return(list(nreps=nreps,
               test.fraction=test.fraction,
               params.tried = params,
@@ -226,41 +227,31 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
 }
 
 
-# repeat entire train/test n times on random splits of data
-# report performance across all splits
-# do this for all requested models.
-# x is a data frame with the desired predictive features
-# y is the continuous outcome
-# individual.ids is a optional vector of IDs of individual
-#   ships. If provided, all entries for a given ship will 
-#   either be in the test set or training set on each split,
-#   to avoid information leak.
-# linear.categories is an optional factor or character vector of 
-#   category labels. If provided, linear regression will be 
-#   performed _within_ each category.
-# if params list is provided, it must contain values for the default params;
-#   each param can be a vector of values, e.g. nodesize=5:10
-#
-# Return value is a list of results and chosen model params across the reps, 
-# in this format:
-# nreps
-# train.fraction
-# params.tried = list of lists of model params requested
-# best.params = list indexed by model of lists of the final params chosen in that rep
-# maes = mean absolute percent errors (rows are models, cols are reps)
-# rmses = root mean squared errors (rows are models, cols are reps)
-# y = true labels
-# yhat = list indexed by model of lists of predicted values
-# train.ix = lists of vectors of train indices
+
+# Predict emissions using saved model
+# 
+# return value is a vector of predicted kg CO2/nm
 "predict.from.saved.model" <- function(newx,
-                                       model,
-                                       model.type,
+                                       final.model.container,
                                        verbose=1
 )
 {
-  # Get a one-hot encoding of the data
-  xoh <- model.matrix(~ ., data=newx)[,-1]
+
+  train.x <- final.model.container$train.x
+  model <- final.model.container$final.model
+  model.type <- final.model.container$model.type
   
+  # Get a one-hot encoding of the data
+  # use the original training data to ensure proper formatting of 
+  # new model matrix
+  predictor.names <- colnames(train.x)
+  combined.x <- rbind(train.x, newx[,colnames(train.x)])
+  xoh <- model.matrix(~ ., data=combined.x)[,-1,drop=F]
+  
+  # remove original data from one-hot encoding, 
+  # leaving only new data
+  xoh <- xoh[-(1:nrow(train.x)),,drop=F]
+
   if(model.type %in% c('xgb','rf')){
     yhat <- predict(model,xoh)
   } else if (model.type == 'linear' && !is.null(linear.predictor) && !is.null(linear.categories)){
@@ -277,6 +268,5 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
   }
   return(yhat)  
 }
-
 
 

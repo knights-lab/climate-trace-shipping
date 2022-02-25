@@ -9,8 +9,10 @@ suppressMessages(suppressWarnings(library('randomForest', warn.conflicts = F, qu
 # params can be a named list of params like nodesize, etc.,
 # if so, these will override the default values for the provided params
 "my.rf.tune" <- function(x, y,
-                        mtry=round(ncol(x)/3),
-                        nodesize=3:10,
+                        # mtry=round(ncol(x)/3),
+                        # nodesize=3:10,
+                        mtry=round(ncol(x)/3) + c(-1,0,1),
+                        nodesize=4:5,
                         ntree=500,
                         params=NULL,
                         verbose=0) {
@@ -27,7 +29,6 @@ suppressMessages(suppressWarnings(library('randomForest', warn.conflicts = F, qu
                        nodesize=nodesize)
   rmses <- numeric(nrow(hyper.grid))
   
-  print(hyper.grid)
   # validation
   if(length(ntree) > 1) stop('Error: rf ntree can only take one value.')
 
@@ -36,18 +37,18 @@ suppressMessages(suppressWarnings(library('randomForest', warn.conflicts = F, qu
     
     # keep all predictions
     yhat <- list()
+    if(verbose > 0) cat('Of', nrow(hyper.grid), 'iterations: ')
     for(i in 1:nrow(hyper.grid)){
+      if(verbose > 0) cat(i,'')
       mtry <- hyper.grid$mtry[i]
       nodesize <- hyper.grid$nodesize[i]
-      if(verbose > 0) cat('mtry =',mtry,'nodesize =',nodesize,'')
-      
+
       m.rf <- randomForest(x, y,
                            mtry=mtry,
                            nodesize=nodesize,
                            ntree=ntree)
       yhat[[i]] <- m.rf$predicted
       rmses[i] <- sqrt(m.rf$mse[ntree])
-      if(verbose > 0) cat(rmses[i],'\n')
     }
     if(verbose > 0) cat('\n')
     best.ix <- which.min(rmses)
@@ -73,7 +74,6 @@ suppressMessages(suppressWarnings(library('randomForest', warn.conflicts = F, qu
     yhat <- list(yhat=yhat)
     rmses <- sqrt(m.rf$mse[ntree])
     best.rmse <- rmses
-    if(verbose > 0) cat(rmses,'\n')
   }
 
   return(list(rmses=rmses,

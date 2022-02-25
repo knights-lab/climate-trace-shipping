@@ -4,10 +4,14 @@ library('xgboost', warn.conflicts = F, quietly = T)
 # returns hyperparameter table, RMSEs, Pearson correlations,
 # and final model trained on all data using lowest RMSE
 "my.xgb.cv.tune" <- function(x, y,nfolds=5,
-                        max_depth = c(3, 4, 5, 6),
-                        eta = c(.05, .1, .2, .3),
-                        subsample = c(0.25,0.5,.75,1),
-                        nrounds=c(100,200,500,1000),
+                        # max_depth = c(3, 4, 5, 6),
+                        # eta = c(.05, .1, .2, .3),
+                        # subsample = c(0.25,0.5,.75,1),
+                        # nrounds=c(100,200,500,1000),
+                        max_depth = c(3, 4),
+                        eta = c(.05, .1),
+                        subsample = c(0.25,0.5),
+                        nrounds=c(10,20),
                         params=NULL,
                         verbose=0) {
   

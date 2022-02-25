@@ -8,12 +8,46 @@ CTHOME=Sys.getenv('R_CLIMATE_TRACE_SHIPPING_HOME')
 
 source(paste(CTHOME,'/lib/lib.r',sep=''))
 
+"load.generic.ship.data.and.metadata" <- function(ship.filepath,
+                                                 metadata.filepath=paste(CTHOME,'/data/IHS complete Ship Data.csv',sep=''),
+                                                 IMO.column='IMO.Number',
+                                                 preprocess=TRUE,
+                                                 remove.outliers=TRUE, # disable for predictions on new data
+                                                 imputation.method=c('rf','quick')[1], # imputation method for missing values, if preprocessing
+                                                 imputation.lookup.table=NULL, # table of known data to use for imputation
+                                                 verbose=TRUE
+){
+  x <- read.csv(ship.filepath)
+
+  # replace spaces with "." in the provided IMO.column string,
+  # to match the auto-replacement in read.csv
+  IMO.column <- gsub(' ','.',IMO.column)
+  
+  # rename the provided IMO number column to 'IMO.Number'
+  colnames(x)[colnames(x) == IMO.column] <- 'IMO.Number'
+  # keep only IMO Number column
+  x <- x[,'IMO.Number',drop=F]
+  
+  map <- load.ship.metadata(metadata.filepath)
+  x <- add.ship.metadata(x, map)
+  if(preprocess) x <- preprocess.ship.data(x,
+                                           do.plots = FALSE,
+                                           remove.outliers=remove.outliers,
+                                           imputation.method=imputation.method,
+                                           imputation.lookup.table=imputation.lookup.table,
+                                           verbose=verbose)
+  return(x)
+}
+
 "load.EU.MRV.ship.data.and.metadata" <- function(ship.filepath=paste(CTHOME,'/data/EU MRV data 18-19-20.csv',sep=''),
                                           metadata.filepath=paste(CTHOME,'/data/IHS complete Ship Data.csv',sep=''),
                                           outdir='output', # outdir for preprocessing visualizations
                                           do.plots=FALSE, # plot feature distributions, outliers, interactions
                                           preprocess=TRUE,
-                                          imputation.method=c('rf','quick')[1] # imputation method for missing values, if preprocessing
+                                          remove.outliers=TRUE, # disable for predictions on new data
+                                          imputation.method=c('rf','quick')[1], # imputation method for missing values, if preprocessing
+                                          imputation.lookup.table=NULL, # table of known data to use for imputation
+                                          verbose=TRUE
                                         ){
   x <- load.EU.MRV.ship.data(ship.filepath)
   map <- load.ship.metadata(metadata.filepath)
@@ -21,7 +55,10 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
   if(preprocess) x <- preprocess.ship.data(x,
                                            outdir = outdir,
                                            do.plots = do.plots,
-                                           imputation.method=imputation.method)
+                                           remove.outliers=remove.outliers,
+                                           imputation.method=imputation.method,
+                                           imputation.lookup.table=imputation.lookup.table,
+                                           verbose=verbose)
   return(x)
 }
 
@@ -93,8 +130,8 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
   x$IMO.Number <- as.character(x$IMO.Number)
   drop.ix <- which(!(x$IMO.Number %in% rownames(map)))
   if(length(drop.ix) > 0){
-    x <- droplevels(x[-drop.ix,])
-    if(verbose > 0) cat('Dropped',length(drop.ix),'entries for ships not present in metadata file.\n')
+    x <- x[-drop.ix,,drop=F]
+    cat('Warning: dropped',length(drop.ix),'entries for ships not present in metadata file.\n')
   }
   # add columns from metadata file
   x$deadweight <- map[x$IMO.Number,'Deadweight']
@@ -116,7 +153,6 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
   ratio <- mean(speed[ix] / x$speedmax[ix])
   x$speedmax[x$speedmax == 0] <- speed[x$speedmax == 0] /ratio # the average factor tends to be close to 0.91
   x$yearbuilt <- map[x$IMO.Number,'YearOfBuild']
-  
   
   # if shiptype.original is not present, assign closest matches
   if(!('shiptype.original' %in% colnames(x))){
@@ -335,6 +371,7 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
                                          'powerkwaux',
                                          'speedmax',
                                          'yearbuilt'),
+                                   remove.outliers = TRUE, # disable for predictions on new data
                                    use.log.for.outlier.detection 
                                      = c('kg.CO2.per.nm',
                                          'deadweight',
@@ -344,12 +381,13 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
                                          'speedmax',
                                          'distance.traveled',
                                          'average.speed'),
-                                   skip.outlier.detection
+                                   ignore.outlier.detection.columns
                                      = c('yearbuilt',
                                          'powerkwaux'),
                                    impute.missing.values
                                      = c('powerkwaux'),
                                    imputation.method=c('rf','quick')[1],
+                                   imputation.lookup.table=NULL, # table of known data to use for imputation
                                    min.time.at.sea = 7*24, # min in hours (default 1 week)
                                    min.distance.traveled = 1000, # default 1k km
                                    outlier.IQR.threshold = 3, # IQR multiplier m for boxplot outlier test
@@ -385,51 +423,89 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
   }
   if(verbose > 0) cat('Dropped',n.before-nrow(x),'ships with N/A, non-positive, or inadmissible value for continuous variables (Time at sea < 1 week or > 1 year, Distance traveled < 1000km).\n')
   
-  # drop outliers 
-  # use boxplot rule modified to m*IQR above/below 75/25%
-  # the m instead of e.g. 1.5*IQR is from visual inspection of the log-transformed data
-  # outliers for some variables detected in log space due to highly skewed data
-  outlier.ix <- rep(FALSE,nrow(x))
-  for(i in 1:length(continuous.vars)){
-    continuous.var <- continuous.vars[i]
-    if(!(continuous.var %in% skip.outlier.detection) &&
-       continuous.var %in% colnames(x)){
-      if(continuous.var %in% use.log.for.outlier.detection){
-        outlier.ix <- outlier.ix | is.outlier(log10(x[,continuous.var]),outlier.IQR.threshold)
-      } else{
-        outlier.ix <- outlier.ix | is.outlier(x[,continuous.var],outlier.IQR.threshold)
+  if(remove.outliers){
+    # drop outliers 
+    # use boxplot rule modified to m*IQR above/below 75/25%
+    # the m instead of e.g. 1.5*IQR is from visual inspection of the log-transformed data
+    # outliers for some variables detected in log space due to highly skewed data
+    outlier.ix <- rep(FALSE,nrow(x))
+    for(i in 1:length(continuous.vars)){
+      continuous.var <- continuous.vars[i]
+      if(!(continuous.var %in% ignore.outlier.detection.columns) &&
+         continuous.var %in% colnames(x)){
+        if(continuous.var %in% use.log.for.outlier.detection){
+          outlier.ix <- outlier.ix | is.outlier(log10(x[,continuous.var]),outlier.IQR.threshold)
+        } else{
+          outlier.ix <- outlier.ix | is.outlier(x[,continuous.var],outlier.IQR.threshold)
+        }
       }
     }
-  }
-  
+  }  
   if(do.plots){
     plot.feature.distributions(x, continuous.vars, use.log=use.log.for.outlier.detection,
                                              outlier.IQR.threshold = outlier.IQR.threshold,
                                              outdir=outdir)
   }
   
-  # Now drop the outliers detected
-  x <- droplevels(x[!outlier.ix,])
-  cat('Dropped',sum(outlier.ix),sprintf('ships (%.3f%%)',100*sum(outlier.ix)/(nrow(x) + sum(outlier.ix))), 'with outlier values for continuous variables.\n')
-  
+  if(remove.outliers){
+    # Now drop the outliers detected
+    x <- droplevels(x[!outlier.ix,])
+    cat('Dropped',sum(outlier.ix),sprintf('ships (%.3f%%)',100*sum(outlier.ix)/(nrow(x) + sum(outlier.ix))), 'with outlier values for continuous variables.\n')
+  }  
 
   # impute missing values e.g. powerkwaux  (auxiliary power)
-  if(length(impute.missing.values) > 0){
-    if(imputation.method == 'quick'){
+  if(length(impute.missing.values) > 0 && any(is.na(x))){
+    if(verbose > 0) cat('NAs detected in input table...\n')
+    if(imputation.method == 'quick' && is.null(imputation.lookup.table)){
+      if(verbose > 0) cat('Filling NAs with median/mode...\n')
+      # quick means use median/mode of non-missing values
       xfix.median <- na.roughfix(x[,-1])
       for(var.name in impute.missing.values){
         if(any(is.na(x[,var.name]))){
           x[,var.name] <- xfix.median[,var.name]
         }
       }
+    } else if(imputation.method == 'quick' && !is.null(imputation.lookup.table)){
+      if(verbose > 0) cat('Filling NAs with quick method from lookup table...\n')
+      # lookup means impute using median/mode of 
+      # variable of same name in provided lookup table
+      for(var.name in impute.missing.values){
+        if(any(is.na(x[,var.name]))){
+          if(class(x[,var.name]) %in% c('string','factor')){
+            # use mode for string/factor
+            table.i <- table(imputation.lookup.table[,var.name])
+            fill.val <- names(table.i)[which.max(table.i)]
+          } else {
+            fill.val <- median(imputation.lookup.table[,var.name])
+          }
+          if(verbose > 0) cat('Fill value for column',var.name,'is',fill.val,'\n')
+          x[is.na(x[,var.name]),var.name] <- fill.val
+        }
+      }
     } else if(imputation.method == 'rf'){
+      nreps <- 5
+      maxit <- 5
+      if(verbose > 0) cat('Running 40 iterations of "rf" imputation of missing values, this can be slow...\n')
       # run MICE package imputation 10 times
-      # note: this is slow
-      if(verbose > 0) cat('Running imputation of missing values, this is slow...\n')
-      yfix <- mice(x[,colnames(x) != "IMO.Number"],m=10,maxit=40,method='rf') # 10 iterations, then average them
+      # note: this is slow for large data sets
+      if(!is.null(imputation.lookup.table)){
+        # if imputation lookup table was provided, 
+        # use it to augment the imputation
+        # find intersection of column names between the two tables
+        common.columns <- intersect(colnames(x), colnames(imputation.lookup.table))
+        tmpx <- rbind(x[,common.columns],imputation.lookup.table[,common.columns])
+        tmpx <- tmpx[,colnames(tmpx) != "IMO.Number"]
+        yfix <- mice(tmpx,m=nreps,maxit=maxit,method='rf') # 10 iterations, then average them
+      } else {
+        yfix <- mice(x[,colnames(x) != "IMO.Number"],m=nreps,maxit=maxit,method='rf') # 10 iterations, then average them
+      }
+      
       for(var.name in impute.missing.values){
         if(var.name %in% names(yfix$imp) && any(is.na(x[,var.name]))){
-          x[is.na(x[,var.name]),var.name] <- rowMeans(yfix$imp[[var.name]])
+          # note: the reason we need to take first nrow(x) rows of imputations
+          # is in case the lookup table was appended
+          na.ix <- which(is.na(x[,var.name]))
+          x[na.ix,var.name] <- rowMeans(yfix$imp[[var.name]][1:length(na.ix),,drop=F])
         }
       }
     }

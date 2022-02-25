@@ -48,6 +48,12 @@ option_list <- list(
               help="Skip model tuning and use hard-coded params, only estimate error (and optionally train final model) [default %default]"),
   make_option(c("--final_model"), action="store_true", default=FALSE,
               help="Train final model. Will be saved to <outdir>/final_model.rdata. Only works with one model at a time. [default %default]"),
+  make_option(c("--imputation_method"), default='quick',
+              help="Imputation method: quick (median/mode) or rf (much more accurate but very slow) [default \"%default\"]"),
+  make_option(c("--save_preprocessed_data"), action="store_true", default=FALSE,
+              help="Save preprocessed data file. This can be useful when you want to want to rerun training but don't want to rerun imputation of missing values. File will be saved to <outdir>/preprocessed.csv [default \"%default\"]"),
+  make_option(c("--load_preprocessed_data"), action="store_true", default=FALSE,
+              help="Load preprocessed data file. This means that the input data file needs no preprocessing or imputation and is ready for model training. [default \"%default\"]"),
   make_option(c("-v", "--verbose"), action="store_true", default=FALSE,
               help="Verbose output [default %default]")
 )
@@ -80,18 +86,19 @@ dir.create(opt$outdir,showWarnings = FALSE)
 
 # load data (can comment this out if loaded to save time)
 if(opt$verbose) cat('Loading ship data and metadata...\n')
-x <- load.EU.MRV.ship.data.and.metadata(ship.filepath=opt$input,
+if(opt$load_preprocessed_data){
+  x <- read.csv(opt$input)
+} else {
+  x <- load.EU.MRV.ship.data.and.metadata(ship.filepath=opt$input,
                                  metadata.filepath=opt$metadata,
                                  outdir=opt$outdir,
-                                 imputation.method='quick')
-
-drop.names <- ''
-# Drop non-static features (those generated annually)
-drop.names <- c(drop.names,c('distance.traveled','time.at.sea','average.speed'))
-
-# Drop unhelpful predictors and the outcome variable, if present
-predictor.names <- setdiff(colnames(x),c('IMO.Number','flagname','reporting.period','shiptype3','shiptype4','kg.CO2.per.nm',drop.names))
-
+                                 imputation.method=opt$imputation_method,
+                                 verbose=opt$verbose)
+  if(opt$save_preprocessed_data){
+    write.csv(x,paste(opt$outdir,'/preprocessed.csv',sep=''),quote=TRUE,row.names=FALSE)
+  }
+}
+predictor.names <- c("shiptype.original","deadweight","grosstonnage","length","breadth","draught","shiptype2","powerkwmax","powerkwaux","speedmax","yearbuilt","flagname.binned","flagname.continent")
 
 if(opt$skip_tuning){
   params <- list(rf=list(mtry=15, nodesize=8,ntree=2000),
@@ -101,9 +108,7 @@ if(opt$skip_tuning){
 }
 
 if(opt$verbose) cat('Running tuning and evaluation...\n')
-
-print(system.time(
-  res <- tune.and.evaluate.models(x[,predictor.names],
+res <- tune.and.evaluate.models(x[,predictor.names],
                                   x$kg.CO2.per.nm,
                                   nreps=opt$repeats,
                                   models=models,
@@ -114,13 +119,22 @@ print(system.time(
                                   verbose=c(0,1)[as.numeric(opt$verbose) + 1],
                                   final.model = opt$final_model
   )
-))
+
+# save eval results
+if(opt$verbose) cat('Saving eval results...\n')
+# create outdir in case does not exist
+dir.create(opt$outdir,showWarnings = FALSE)
+# write results to .csv file
+write.csv(res$rmses, paste(opt$outdir,'/rmse.csv',sep=''), row.names = TRUE, quote=F)
+write.csv(res$maes, paste(opt$outdir,'/mae.csv',sep=''), row.names = TRUE, quote=F)
 
 # save final model
 if(opt$final_model){
   if(opt$verbose > 0) cat('Saving final model...\n')
   final.model.filepath <- paste(opt$outdir,'/final_model.rdata',sep='')
-  final.model.container <- list(model.type=models[1], final.model=res$final.model)
+  final.model.container <- list(model.type=models[1],
+                                train.x=x[,predictor.names],
+                                final.model=res$final.model)
   save(final.model.container, file=final.model.filepath)
 }
 
