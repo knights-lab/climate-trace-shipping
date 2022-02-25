@@ -28,7 +28,7 @@ suppressMessages(suppressWarnings(library('randomForest', warn.conflicts = F, qu
   hyper.grid <- expand.grid(mtry=mtry,
                        nodesize=nodesize)
   rmses <- numeric(nrow(hyper.grid))
-  
+
   # validation
   if(length(ntree) > 1) stop('Error: rf ntree can only take one value.')
 

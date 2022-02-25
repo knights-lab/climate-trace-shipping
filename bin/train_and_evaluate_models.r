@@ -46,8 +46,10 @@ option_list <- list(
               help="Number of repeats of evaluation procedure [default %default]"),
   make_option(c("--skip_tuning"), action="store_true", default=FALSE,
               help="Skip model tuning and use hard-coded params, only estimate error (and optionally train final model) [default %default]"),
-  make_option(c("--final_model"), action="store_true", default=FALSE,
-              help="Train final model. Will be saved to <outdir>/final_model.rdata. Only works with one model at a time. [default %default]"),
+  make_option(c("--skip_eval"), action="store_true", default=FALSE,
+              help="Use hard-coded hyperparams and skip model tuning and eval entirely, only train final model. Implies skip_tuning. [default %default]"),
+  make_option(c("--skip_final_model"), action="store_true", default=FALSE,
+              help="Skip training final model. Otherwise, final model will be saved to <outdir>/final_model.rdata. Required when evaluating multiple models. [default %default]"),
   make_option(c("--imputation_method"), default='quick',
               help="Imputation method: quick (median/mode) or rf (much more accurate but very slow) [default \"%default\"]"),
   make_option(c("--save_preprocessed_data"), action="store_true", default=FALSE,
@@ -59,6 +61,17 @@ option_list <- list(
 )
 opt <- parse_args(OptionParser(option_list=option_list))
 
+# check that all required options are provided
+required.opts <- c('input','metadata','outdir')
+if(any(!(required.opts %in% names(opt)))){
+  stop(sprintf('One or more of these required parameters is missing: %s.\n\n', paste(required.opts,collapse=', ')))
+}
+
+
+if(any(!(required.opts %in% names(opt)))){
+  stop(sprintf('One or more of these required parameters is missing: %s.\n\n', paste(required.opts,collapse=', ')))
+}
+
 # check models list for validity
 models <- strsplit(opt$models,',')[[1]]
 for(model in models){
@@ -68,6 +81,25 @@ for(model in models){
     stop(sprintf('Error: requested model \"%s\" not found in valid models: %s \n', valid.model.string))
   }
 }
+
+# check for conflict between --models and --skip_eval
+if(opt$skip_eval && length(models) > 1){
+  cat('\nStop: Cannot skip eval when evaluating multiple models.\n')  
+}
+
+# check for conflict between --models and --skip_eval
+if(opt$skip_eval && opt$skip_final_model){
+  cat('\nStop: Cannot skip eval and skip final model.\n')  
+}
+
+# check for conflict between --models and --skip_final_model
+if(!opt$skip_final_model && length(models) > 1){
+  cat('\nWarning: Cannot produce final model when evaluating multiple models. Setting "skip_final_model" to TRUE.\n')  
+  opt$skip_final_model <- TRUE
+}
+
+# for convenience, store final_model as opposite of skip_final_model
+opt$final_model <- !opt$skip_final_model
 
 # ensure that only one model is requested
 # if final model also requested
@@ -90,43 +122,73 @@ if(opt$load_preprocessed_data){
   x <- read.csv(opt$input)
 } else {
   x <- load.EU.MRV.ship.data.and.metadata(ship.filepath=opt$input,
-                                 metadata.filepath=opt$metadata,
-                                 outdir=opt$outdir,
-                                 imputation.method=opt$imputation_method,
-                                 verbose=opt$verbose)
+                                          metadata.filepath=opt$metadata,
+                                          outdir=opt$outdir,
+                                          imputation.method=opt$imputation_method,
+                                          verbose=opt$verbose)
   if(opt$save_preprocessed_data){
     write.csv(x,paste(opt$outdir,'/preprocessed.csv',sep=''),quote=TRUE,row.names=FALSE)
   }
 }
 predictor.names <- c("shiptype.original","deadweight","grosstonnage","length","breadth","draught","shiptype2","powerkwmax","powerkwaux","speedmax","yearbuilt","flagname.binned","flagname.continent")
 
-if(opt$skip_tuning){
+if(opt$skip_tuning || opt$skip_eval){
   params <- list(rf=list(mtry=15, nodesize=8,ntree=2000),
-              xgb=list(nrounds=2000, eta=.01, subsample=0.75, max_depth=5))
+                 xgb=list(nrounds=2000, eta=.01, subsample=0.75, max_depth=5))
 } else {
   params <- NULL
 }
 
 if(opt$verbose) cat('Running tuning and evaluation...\n')
 res <- tune.and.evaluate.models(x[,predictor.names],
-                                  x$kg.CO2.per.nm,
-                                  nreps=opt$repeats,
-                                  models=models,
-                                  params=params,
-                                  individual.ids=x$IMO.Number,
-                                  linear.predictor=x$powerkwmax,
-                                  linear.categories=x$shiptype.original,
-                                  verbose=c(0,1)[as.numeric(opt$verbose) + 1],
-                                  final.model = opt$final_model
-  )
+                                x$kg.CO2.per.nm,
+                                nreps=opt$repeats,
+                                models=models,
+                                params=params,
+                                individual.ids=x$IMO.Number,
+                                linear.predictor=x$powerkwmax,
+                                linear.categories=x$shiptype.original,
+                                verbose=c(0,1)[as.numeric(opt$verbose) + 1],
+                                skip.eval = opt$skip_eval,
+                                final.model = opt$final_model
+)
 
 # save eval results
-if(opt$verbose) cat('Saving eval results...\n')
-# create outdir in case does not exist
-dir.create(opt$outdir,showWarnings = FALSE)
-# write results to .csv file
-write.csv(res$rmses, paste(opt$outdir,'/rmse.csv',sep=''), row.names = TRUE, quote=F)
-write.csv(res$maes, paste(opt$outdir,'/mae.csv',sep=''), row.names = TRUE, quote=F)
+if(!opt$skip_eval){
+  if(opt$verbose) cat('Saving eval results...\n')
+  # create outdir in case does not exist
+  dir.create(opt$outdir,showWarnings = FALSE)
+  # write results to .csv file
+  write.csv(res$rmses, paste(opt$outdir,'/rmse.csv',sep=''), row.names = TRUE, quote=F)
+  write.csv(res$maes, paste(opt$outdir,'/mae.csv',sep=''), row.names = TRUE, quote=F)
+  
+  # write summary of execution parameters and performance
+  sink(paste(opt$outdir,'/summary.txt',sep=''))
+  cat('Overall performance\n')
+  cat('Model     MAE (mean +/- sd)   NRMSE (mean +/- sd)\n')
+  for(i in 1:nrow(res$mae)){
+    cat(sprintf('%-10s',rownames(res$mae)[i]))
+    cat(sprintf('%0.4f +/- %0.4f  ',mean(res$mae[i,]), sd(res$mae[i,])))
+    cat(sprintf('%0.4f +/- %0.4f',mean(res$rmse[i,]), sd(res$rmse[i,])))
+    cat('\n')
+  }
+  cat('\n')
+  cat('Best model hyperparameters\n')
+  # print hyperparams in a table for each model
+  for(model.name in names(res$best.params)){
+    if(length(res$best.params[[model.name]]) > 0){
+      cat(model.name,'\n',sep='')
+      param.mat <- sapply(res$best.params[[model.name]], function(xx) unlist(xx))
+      colnames(param.mat) <- sprintf('rep%03d',1:ncol(param.mat))
+      print(param.mat)
+      cat('\n')
+    }
+  }
+  cat('\n')
+  cat('Command parameters\n')
+  print(opt)
+  sink(NULL)
+}
 
 # save final model
 if(opt$final_model){

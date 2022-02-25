@@ -13,7 +13,7 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
                                                  IMO.column='IMO.Number',
                                                  preprocess=TRUE,
                                                  remove.outliers=TRUE, # disable for predictions on new data
-                                                 imputation.method=c('rf','quick')[1], # imputation method for missing values, if preprocessing
+                                                 imputation.method=c('rf','quick','none')[1], # imputation method for missing values, if preprocessing
                                                  imputation.lookup.table=NULL, # table of known data to use for imputation
                                                  verbose=TRUE
 ){
@@ -45,7 +45,7 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
                                           do.plots=FALSE, # plot feature distributions, outliers, interactions
                                           preprocess=TRUE,
                                           remove.outliers=TRUE, # disable for predictions on new data
-                                          imputation.method=c('rf','quick')[1], # imputation method for missing values, if preprocessing
+                                          imputation.method=c('rf','quick','none')[1], # imputation method for missing values, if preprocessing
                                           imputation.lookup.table=NULL, # table of known data to use for imputation
                                           verbose=TRUE
                                         ){
@@ -386,7 +386,7 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
                                          'powerkwaux'),
                                    impute.missing.values
                                      = c('powerkwaux'),
-                                   imputation.method=c('rf','quick')[1],
+                                   imputation.method=c('rf','quick','none')[1],
                                    imputation.lookup.table=NULL, # table of known data to use for imputation
                                    min.time.at.sea = 7*24, # min in hours (default 1 week)
                                    min.distance.traveled = 1000, # default 1k km
@@ -454,7 +454,7 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
   }  
 
   # impute missing values e.g. powerkwaux  (auxiliary power)
-  if(length(impute.missing.values) > 0 && any(is.na(x))){
+  if(length(impute.missing.values) > 0 && any(is.na(x)) && imputation.method != 'none'){
     if(verbose > 0) cat('NAs detected in input table...\n')
     if(imputation.method == 'quick' && is.null(imputation.lookup.table)){
       if(verbose > 0) cat('Filling NAs with median/mode...\n')
@@ -483,9 +483,9 @@ source(paste(CTHOME,'/lib/lib.r',sep=''))
         }
       }
     } else if(imputation.method == 'rf'){
-      nreps <- 5
-      maxit <- 5
-      if(verbose > 0) cat('Running 40 iterations of "rf" imputation of missing values, this can be slow...\n')
+      nreps <- 20 # chose these values using results from  lib/dev/test_imputation_methods.r 
+      maxit <- 1 
+      if(verbose > 0) cat('Running "rf" imputation of missing values, this can be slow...\n')
       # run MICE package imputation 10 times
       # note: this is slow for large data sets
       if(!is.null(imputation.lookup.table)){

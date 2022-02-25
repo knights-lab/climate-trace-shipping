@@ -49,147 +49,167 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
                                        individual.ids=NULL,
                                        linear.predictor=NULL, # predictor variable for linear models
                                        linear.categories=NULL,
+                                       skip.eval=FALSE, # skip evaluation entirely, only produce final model
                                        final.model=TRUE, # Train a final model on all data
                                        verbose=1
 )
 {
-
+  if(skip.eval){
+    # ensure that params were passed
+    if(is.null(params)){
+      stop('Cannot skip tuning/eval without providing model parameters.')
+    }
+    final.model <- TRUE # automatically produce final model if skipping eval
+  } 
+  
   # initialize return variables
   maes <- matrix(0,nrow=length(models),ncol=nreps, dimnames=list(models, sprintf('rep%d',1:nreps)))
   rmses <- matrix(0,nrow=length(models),ncol=nreps, dimnames=list(models, sprintf('rep%d',1:nreps)))
   best.params <- list()
   yhat = list()
   train.ix = list()
-
-  for(rep.i in 1:nreps){
-    if(verbose > 0) cat('\nREP',rep.i,'of',nreps,'\n\n')
-
-    # Initialize train/test split for this rep
-    train.ix[[rep.i]] <- sample(nrow(x),round((1-test.fraction)*nrow(x)))
-
-    # if individual.ids provided,
-    # and if a ship appears more than once,
-    # then ensure each ship is in either train or test
-    if(!is.null(individual.ids)){
-      if(max(table(individual.ids)) > 1){
-        if(verbose > 0) cat('Certain ships appear more than once, grouping each ship in train or test.\n')
-        ship.ids <- sample(unique(individual.ids)) # get random ordering of ship ids
-        train.ship.ids.ix <- sample(length(ship.ids),round((1-test.fraction)*length(ship.ids)))
-        train.ix[[rep.i]] <- which(individual.ids %in% ship.ids[train.ship.ids.ix])
+  
+  # Get a one-hot encoding of the data
+  xoh <- model.matrix(~ ., data=x)[,-1]
+  
+  if(!skip.eval){
+    for(rep.i in 1:nreps){
+      if(verbose > 0) cat('\nREP',rep.i,'of',nreps,'\n\n')
+      
+      # Initialize train/test split for this rep
+      train.ix[[rep.i]] <- sample(nrow(x),round((1-test.fraction)*nrow(x)))
+      
+      # if individual.ids provided,
+      # and if a ship appears more than once,
+      # then ensure each ship is in either train or test
+      if(!is.null(individual.ids)){
+        if(max(table(individual.ids)) > 1){
+          if(verbose > 0) cat('Certain ships appear more than once, grouping each ship in train or test.\n')
+          ship.ids <- sample(unique(individual.ids)) # get random ordering of ship ids
+          train.ship.ids.ix <- sample(length(ship.ids),round((1-test.fraction)*length(ship.ids)))
+          train.ix[[rep.i]] <- which(individual.ids %in% ship.ids[train.ship.ids.ix])
+        }
+      }
+      
+      train.ix.i <- train.ix[[rep.i]] # for convenience
+      
+      for(i in 1:length(models)){
+        if(verbose > 0) cat(sprintf('Model %s\n',models[i]))
+        if(rep.i == 1) {
+          # if first rep, initialize empty lists for results from this model
+          best.params[[models[i]]] <- list()
+          yhat[[models[i]]] <- list()
+        }
+        
+        # TUNE model
+        if(models[i] == 'xgb'){
+          res <- my.xgb.cv.tune(xoh[train.ix.i,,drop=F],y[train.ix.i],params=params[['xgb']],verbose=verbose)
+          yhat.test <- predict(res$final.model,xoh[-train.ix.i,])
+          best.params[['xgb']][[rep.i]] <- res$best.params
+        } else if (models[i] == 'rf'){
+          res <- my.rf.tune(xoh[train.ix.i,,drop=F],y[train.ix.i],params=params[['rf']],verbose=verbose)
+          yhat.test <- predict(res$final.model,xoh[-train.ix.i,])
+          best.params[['rf']][[rep.i]] <- res$best.params
+          
+        } else if (models[i] == 'linear' && !is.null(linear.predictor) && !is.null(linear.categories)){
+          res.lm <- lm.by.category(linear.predictor[train.ix.i], y[train.ix.i], linear.categories[train.ix.i])
+          yhat.test <- predict.lm.by.category(res.lm$final.model,linear.predictor[-train.ix.i], linear.categories[-train.ix.i])
+        } else if (models[i] == 'ridge'){
+          # only continuous predictors for ridge regression
+          ridge.predictors <- sapply(x,class) %in% c('numeric','integer')
+          xoh.ridge <- model.matrix(~ ., data=x[,ridge.predictors,drop=F])[,-1]
+          res.ridge <- train.ridge.by.category(xoh.ridge[train.ix.i,,drop=F],y[train.ix.i],droplevels(as.factor(linear.categories[train.ix.i])),verbose=verbose)
+          yhat.test <- predict.ridge.by.category(res.ridge$final.model, xoh.ridge[-train.ix.i,,drop=F],droplevels(as.factor(linear.categories[-train.ix.i])))
+        }
+        
+        # EVALUATE performance
+        y.test <- y[-train.ix.i]
+        rmses[models[i],rep.i] <- sqrt(mean((y.test - yhat.test)^2))/mean(y.test)
+        maes[models[i],rep.i] <- mean(abs(y.test-yhat.test)/y.test)
+        
+        # store yhat
+        yhat[[models[i]]][[rep.i]] <- yhat.test
+        
+        if(verbose > 0) cat('NRMSE =',rmses[i,rep.i],'MAE =',maes[i,rep.i],'\n')
+        
+        if(FALSE){
+          # TO DO: add optional visualizations of feature importance
+          # and obs vs expected scatterplots; example code below.
+          # importance calculations
+          importance_matrix <- xgb.importance(model = res.xgb$final.model)
+          importance_matrix <- importance_matrix[1:min(10,max(min(nrow(importance_matrix),10),which(importance_matrix$Gain > 0.001))),drop=F]
+          feature.names <- importance_matrix$Feature
+          importance_matrix <- as.matrix(importance_matrix[,-1])
+          rownames(importance_matrix) <- feature.names
+          print(cbind(res.xgb$rmses,res.xgb$hyper.grid)[order(res.xgb$rmses),])
+          
+          pdf(sprintf('output/xgb-importance-%s.pdf',task),width=5, height=5)
+          par(mar=c(5,10,2,2))
+          barplot(importance_matrix[nrow(importance_matrix):1,'Gain'],
+                  names.arg=rownames(importance_matrix)[nrow(importance_matrix):1],
+                  horiz=TRUE,
+                  las=2,xlab = "XBG tree gain",
+                  cex.axis=.7,
+                  cex.names=.7,
+                  main="XBG Feature Importance",
+                  cex.main=1)
+          dev.off()
+          
+          importance_matrix <- res.rf$final.model$importance
+          importance_matrix <- importance_matrix[order(importance_matrix[,'IncNodePurity'],decreasing=TRUE),,drop=F][1:(min(10,nrow(importance_matrix))),,drop=F]
+          
+          pdf(sprintf('output/rf-importance-%s.pdf',task),width=5, height=5)
+          par(mar=c(5,10,2,2))
+          barplot(importance_matrix[nrow(importance_matrix):1,1],
+                  names.arg=rownames(importance_matrix)[nrow(importance_matrix):1],
+                  horiz=TRUE,
+                  las=2,xlab = "RF Increase in Node Purity",
+                  cex.axis=.7,
+                  cex.names=.7,
+                  main="RF Feature Importance",
+                  cex.main=1)
+          dev.off()
+          
+          # plot scatterplot
+          pdf(sprintf('output/xgb-%s.pdf',task),width=5, height=5)
+          axis.lims <- range(c(y.test,yhat.test))
+          plot(y.test,yhat.test,pch=21,col=NA,bg='#00000011',main=sprintf('XGB Test \n(NRMSE %0.3f, MAE %0.1f)',nrmse, mae),las=2,cex.axis=.75,xlim=axis.lims,ylim=axis.lims,xlab='Reported kg CO2/nm',ylab='Predicted kg CO2/nm'); abline(0,1)
+          dev.off()
+          
+          pdf(sprintf('output/xgb-mae-by-shiptype-%s.pdf',task), width=7,height=5)
+          par(mar=c(7.1, 4.1, 4.1, 2.1))
+          abs.pct.err <- abs(y.test-yhat.test)/y.test
+          boxplot(100*abs.pct.err ~ x[rowix,,drop=F][-train.ix.i,'shiptype3'],las=2,cex.axis=.5, ylab='Absolute percent error')
+          dev.off()
+          
+          # plot per-category linear fits
+          pdf(sprintf('output/lm.scatterplots.by.shiptype-%s.pdf',task),width=9,height=7)
+          plot.lm.by.category(x$deadweight[rowix], x$kg.CO2.per.nm[rowix], x$shiptype.original[rowix])
+          dev.off()
+          
+        }
+        
       }
     }
-    
-    train.ix.i <- train.ix[[rep.i]] # for convenience
-
-    # Get a one-hot encoding of the data
-    xoh <- model.matrix(~ ., data=x)[,-1]
-
-    for(i in 1:length(models)){
-      if(verbose > 0) cat(sprintf('Model %s\n',models[i]))
-      if(rep.i == 1) {
-        # if first rep, initialize empty lists for results from this model
-        best.params[[models[i]]] <- list()
-        yhat[[models[i]]] <- list()
-      }
-
-      # TUNE model
-      if(models[i] == 'xgb'){
-        res <- my.xgb.cv.tune(xoh[train.ix.i,,drop=F],y[train.ix.i],params=params[['xgb']],verbose=verbose)
-        yhat.test <- predict(res$final.model,xoh[-train.ix.i,])
-        best.params[['xgb']][[rep.i]] <- res$best.params
-      } else if (models[i] == 'rf'){
-        res <- my.rf.tune(xoh[train.ix.i,,drop=F],y[train.ix.i],params=params[['rf']],verbose=verbose)
-        yhat.test <- predict(res$final.model,xoh[-train.ix.i,])
-        best.params[['rf']][[rep.i]] <- res$best.params
-        
-      } else if (models[i] == 'linear' && !is.null(linear.predictor) && !is.null(linear.categories)){
-        res.lm <- lm.by.category(linear.predictor[train.ix.i], y[train.ix.i], linear.categories[train.ix.i])
-        yhat.test <- predict.lm.by.category(res.lm$final.model,linear.predictor[-train.ix.i], linear.categories[-train.ix.i])
-      } else if (models[i] == 'ridge'){
-        # only continuous predictors for ridge regression
-        ridge.predictors <- sapply(x,class) %in% c('numeric','integer')
-        xoh.ridge <- model.matrix(~ ., data=x[,ridge.predictors,drop=F])[,-1]
-        res.ridge <- train.ridge.by.category(xoh.ridge[train.ix.i,,drop=F],y[train.ix.i],droplevels(as.factor(linear.categories[train.ix.i])),verbose=verbose)
-        yhat.test <- predict.ridge.by.category(res.ridge$final.model, xoh.ridge[-train.ix.i,,drop=F],droplevels(as.factor(linear.categories[-train.ix.i])))
-      }
-
-      # EVALUATE performance
-      y.test <- y[-train.ix.i]
-      rmses[models[i],rep.i] <- sqrt(mean((y.test - yhat.test)^2))/mean(y.test)
-      maes[models[i],rep.i] <- 100*mean(abs(y.test-yhat.test)/y.test)
-          
-      # store yhat
-      yhat[[models[i]]][[rep.i]] <- yhat.test
-
-      if(verbose > 0) cat('NRMSE =',rmses[i,rep.i],'MAE =',maes[i,rep.i],'\n')
-      
-      if(FALSE){
-        # TO DO: add optional visualizations of feature importance
-        # and obs vs expected scatterplots; example code below.
-        # importance calculations
-        importance_matrix <- xgb.importance(model = res.xgb$final.model)
-        importance_matrix <- importance_matrix[1:min(10,max(min(nrow(importance_matrix),10),which(importance_matrix$Gain > 0.001))),drop=F]
-        feature.names <- importance_matrix$Feature
-        importance_matrix <- as.matrix(importance_matrix[,-1])
-        rownames(importance_matrix) <- feature.names
-        print(cbind(res.xgb$rmses,res.xgb$hyper.grid)[order(res.xgb$rmses),])
-
-        pdf(sprintf('output/xgb-importance-%s.pdf',task),width=5, height=5)
-        par(mar=c(5,10,2,2))
-        barplot(importance_matrix[nrow(importance_matrix):1,'Gain'],
-                names.arg=rownames(importance_matrix)[nrow(importance_matrix):1],
-                horiz=TRUE,
-                las=2,xlab = "XBG tree gain",
-                cex.axis=.7,
-                cex.names=.7,
-                main="XBG Feature Importance",
-                cex.main=1)
-        dev.off()
-        
-        importance_matrix <- res.rf$final.model$importance
-        importance_matrix <- importance_matrix[order(importance_matrix[,'IncNodePurity'],decreasing=TRUE),,drop=F][1:(min(10,nrow(importance_matrix))),,drop=F]
-        
-        pdf(sprintf('output/rf-importance-%s.pdf',task),width=5, height=5)
-        par(mar=c(5,10,2,2))
-        barplot(importance_matrix[nrow(importance_matrix):1,1],
-                names.arg=rownames(importance_matrix)[nrow(importance_matrix):1],
-                horiz=TRUE,
-                las=2,xlab = "RF Increase in Node Purity",
-                cex.axis=.7,
-                cex.names=.7,
-                main="RF Feature Importance",
-                cex.main=1)
-        dev.off()
-        
-        # plot scatterplot
-        pdf(sprintf('output/xgb-%s.pdf',task),width=5, height=5)
-        axis.lims <- range(c(y.test,yhat.test))
-        plot(y.test,yhat.test,pch=21,col=NA,bg='#00000011',main=sprintf('XGB Test \n(NRMSE %0.3f, MAE %0.1f)',nrmse, mae),las=2,cex.axis=.75,xlim=axis.lims,ylim=axis.lims,xlab='Reported kg CO2/nm',ylab='Predicted kg CO2/nm'); abline(0,1)
-        dev.off()
-        
-        pdf(sprintf('output/xgb-mae-by-shiptype-%s.pdf',task), width=7,height=5)
-        par(mar=c(7.1, 4.1, 4.1, 2.1))
-        abs.pct.err <- abs(y.test-yhat.test)/y.test
-        boxplot(100*abs.pct.err ~ x[rowix,,drop=F][-train.ix.i,'shiptype3'],las=2,cex.axis=.5, ylab='Absolute percent error')
-        dev.off()
-        
-        # plot per-category linear fits
-        pdf(sprintf('output/lm.scatterplots.by.shiptype-%s.pdf',task),width=9,height=7)
-        plot.lm.by.category(x$deadweight[rowix], x$kg.CO2.per.nm[rowix], x$shiptype.original[rowix])
-        dev.off()
-        
-      }
-      
+  } else {
+    # skip eval, just use params as best.params
+    if(verbose > 0) cat('Skipping model evaluation, producing final model with given params.\n')
+    if(model %in% c('rf','xgb')){
+      # if this model has hyperparams, take them from the passed params,
+      # since we are not doing tuning.
+      best.params <- params[[model]]
+      final.params <- params[[model]]
     }
   }
+  
   if(verbose > 0) cat('Generating final model...\n')
   
   if(final.model){
     # if requested, train final model on all data using best params
     # Only works with one model at a time
     if(length(models) > 1) stop('Error: final model can only be requested for one model type at a time')
-
-    if(model %in% c('rf','xgb')){
+    
+    if(model %in% c('rf','xgb') && !skip.eval){
       # get this model's params from all reps in a matrix
       params.mat <- matrix(unlist(best.params[[models[1]]]), ncol=nreps)
       # choose the median value of each param
@@ -236,7 +256,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
                                        verbose=1
 )
 {
-
+  
   train.x <- final.model.container$train.x
   model <- final.model.container$final.model
   model.type <- final.model.container$model.type
@@ -251,7 +271,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
   # remove original data from one-hot encoding, 
   # leaving only new data
   xoh <- xoh[-(1:nrow(train.x)),,drop=F]
-
+  
   if(model.type %in% c('xgb','rf')){
     yhat <- predict(model,xoh)
   } else if (model.type == 'linear' && !is.null(linear.predictor) && !is.null(linear.categories)){

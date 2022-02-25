@@ -20,7 +20,7 @@ set.seed(123456)
 # Define and get commandline options
 option_list <- list(
   make_option(c("-i", "--input"),
-              help="Input training data CSV. Must have a column containing IMO Numbers. Currently assumes this is EU reporting data with additional columns Ship.type, distance.traveled.nm, average.speed.nm.hr, Annual.Total.time.spent.at.sea.hours, and Annual.average.CO.emissions.per.distance.kg.CO.n.mile [required]"),
+              help="Input data CSV. Must have a column containing IMO Numbers. [required]"),
   make_option(c("-I", "--IMO_column"), default='IMO.Number',
               help="Name of column containing IMO Numbers [default \"%default\"]"),
   make_option(c("-m", "--metadata"), 
@@ -36,6 +36,11 @@ option_list <- list(
 )
 opt <- parse_args(OptionParser(option_list=option_list))
 
+# check that all required options are provided
+required.opts <- c('input','metadata','model_file','output_file')
+if(any(!(required.opts %in% names(opt)))){
+  stop(sprintf('One or more of these required parameters is missing: %s.\n\n', paste(required.opts,collapse=', ')))
+}
 
 # Now load other code; waited till here to perform
 # input validations first
