@@ -63,7 +63,7 @@ Rscript /path/to/train_and_evaluate_models.r -h
 
 Usage examples:
 
-Tune models and evaluate performance with the following command. Required input data are not distributed in this repository and must be supplied by the user. Note that currently final model can only be produce and saved for one model at a time, so this step only performs evaluation and comparison of models. This will run random forests (rf), extreme gradient boosting (xgb), linear modeling within each ship type, and ridge-regression modeling within each ship type. Each model will be tuned on training data and evaluated on hold-out test data using 5 randome train/test splits of 2/3 train, 1/3 test. Reported performance metrics are mean absolute error (MAE) and normalized root-mean-squared error (NRMSE). 
+Tune models and evaluate performance with the following command. Required input data are not distributed in this repository and must be supplied by the user. Note that currently final model can only be produce and saved for one model at a time, so this step only performs evaluation and comparison of models. This will run random forests (rf), extreme gradient boosting (xgb), linear modeling within each ship type, and ridge-regression modeling within each ship type. Each model will be tuned on training data and evaluated on hold-out test data using 5 randome train/test splits of 2/3 train, 1/3 test. Reported performance metrics are mean absolute error (MAE) and normalized root-mean-squared error (NRMSE).  Note that if the input data file as spaces in the filename, the entire filename must be surrounded by quotation marks as shown for the metadata file and input file in the following command.
 ```bash
 time Rscript ../bin/train_and_evaluate_models.r -i "../data/EU MRV data 18-19-20.csv" -m "../data/IHS complete Ship Data.csv" -o output_model_eval --models 'rf,xgb,linear,ridge' -v --save_preprocessed_data --skip_final_model --repeats 5
 ```
@@ -116,7 +116,7 @@ Rscript predict_emissions.r -h
 
 Usage examples:
 
-Run predictions on new input CSV table. This assumes that IMO numbers are in a column named "imo num", for example. This uses the final model from the above training commands, `output_file_rf/final_model.rdata`.
+Run predictions on new input CSV table. This assumes that IMO numbers are in a column named "imo num", for example. This uses the final model from the above training commands, `output_file_rf/final_model.rdata`. Note that if the input data file as spaces in the filename, the entire filename must be surrounded by quotation marks as shown for the metadata file in the following command.
 ```bash
 time Rscript ../bin/train_and_evaluate_models.r -i newdata.csv -I "imo num" -m "../data/IHS complete Ship Data.csv" -o newdata_predicted.csv --model_file output_final_rf/final_model.rdata -v
 ```
