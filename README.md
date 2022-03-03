@@ -23,7 +23,7 @@ If this command fails, please try installing packages one at a time, or try a di
 
 To use this package, you must clone it (using `git clone https://github.com/knights-lab/climate-trace-shipping.git`) or download a static version of it [here](https://github.com/knights-lab/climate-trace-shipping/archive/refs/heads/main.zip) and extract the files from the downloaded zip file.
 
-Finally, this package requires that the path to the package be included in your `.Renviron` file in your home directory with the environment variable name `R_CLIMATE_TRACE_SHIPPING_HOME`. This can be achieved with the following command:
+Finally, this package requires that the path to the package be included in your `.Renviron` file in your home directory with the environment variable name `R_CLIMATE_TRACE_SHIPPING_HOME`. This can be achieved with the following command on UNIX (Linux or Mac):
 ```bash
 echo "R_CLIMATE_TRACE_SHIPPING_HOME='/Users/danknights/Dropbox/research/climate-trace-shipping'" >> ~/.Renviron
 ```
@@ -67,7 +67,7 @@ Usage examples:
 Tune models and evaluate performance with the following command. Required input data are not distributed in this repository and must be supplied by the user. Note that currently final model can only be produce and saved for one model at a time, so this step only performs evaluation and comparison of models. This will run random forests (rf), extreme gradient boosting (xgb), linear modeling within each ship type, and ridge-regression modeling within each ship type. Each model will be tuned on training data and evaluated on hold-out test data using 5 randome train/test splits of 2/3 train, 1/3 test. Reported performance metrics are mean absolute error (MAE) and normalized root-mean-squared error (NRMSE).  Note that if the input data file has spaces in the filename, the entire filename must be surrounded by quotation marks as shown for the metadata file and input file in the following command.
 
 ```bash
-time Rscript ../bin/train_and_evaluate_models.r -i "../data/EU MRV data 18-19-20.csv" -m "../data/IHS complete Ship Data.csv" -o output_model_eval --models 'rf,xgb,linear,ridge' -v --save_preprocessed_data --skip_final_model --repeats 5
+time Rscript ../bin/train_and_evaluate_models.r -i "../data/EU MRV data 18-19-20.csv" -m "../data/IHS complete Ship Data.csv" -o output_model_eval --models "rf,xgb,linear,ridge" -v --save_preprocessed_data --skip_final_model --repeats 5
 ```
 
 The output file, `summary.txt` in the output directory shows a summary of performance of different models across train/test splits, and reports the chosen hyperparameters for each model (for those that require hyperparameters) in each train/test split.
@@ -79,12 +79,12 @@ Models may be tuned, evaluated, and trained using the script, `predict_emissions
 
 Generate a final "random forests" model using hardcoded hyperparams with the following, skipping the tuning/evaluation steps:
 ```bash
-time Rscript ../bin/train_and_evaluate_models.r -i "../data/EU MRV data 18-19-20.csv" -m "../data/IHS complete Ship Data.csv" -o output_final_rf --models 'rf' -v --skip_eval
+time Rscript ../bin/train_and_evaluate_models.r -i "../data/EU MRV data 18-19-20.csv" -m "../data/IHS complete Ship Data.csv" -o output_final_rf --models "rf" -v --skip_eval
 ```
 
 Generate a final "random forests" model after using tuning/evaluation to choose the best hyperparameters over 5 random train/test splits:
 ```bash
-time Rscript ../bin/train_and_evaluate_models.r -i "../data/EU MRV data 18-19-20.csv" -m "../data/IHS complete Ship Data.csv" -o output_final_rf --models 'rf' -v --repeats 5
+time Rscript ../bin/train_and_evaluate_models.r -i "../data/EU MRV data 18-19-20.csv" -m "../data/IHS complete Ship Data.csv" -o output_final_rf --models "rf" -v --repeats 5
 ```
 
 ### Run predictions on new data
