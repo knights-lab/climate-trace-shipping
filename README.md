@@ -121,6 +121,6 @@ Usage examples:
 Run predictions on new input CSV table. This assumes that IMO numbers are in a column named "imo num", for example. This uses the final model from the above training commands, `output_file_rf/final_model.rdata`. Note that if the input data file has spaces in the filename, the entire filename must be surrounded by quotation marks as shown for the metadata file in the following command.
 
 ```bash
-time Rscript ../bin/train_and_evaluate_models.r -i newdata.csv -I "imo num" -m "../data/IHS complete Ship Data.csv" -o newdata_predicted.csv --model_file output_final_rf/final_model.rdata -v
+Rscript ../bin/predict_emissions.r -i newdata.csv -I "imo num" -m "../data/IHS complete Ship Data.csv" -o newdata_predicted.csv --model_file output_final_rf/final_model.rdata -v
 ```
 

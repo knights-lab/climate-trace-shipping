@@ -7,7 +7,7 @@ CTHOME=Sys.getenv('R_CLIMATE_TRACE_SHIPPING_HOME')
 
 library("optparse", warn.conflicts = F, quietly = T)
 library('xgboost', warn.conflicts = F, quietly = T)
-library('caret', warn.conflicts = F, quietly = T)
+#library('caret', warn.conflicts = F, quietly = T)
 library('data.table', warn.conflicts = F, quietly = T)
 source(paste(CTHOME,'/lib/rf.r',sep=''))
 source(paste(CTHOME,'/lib/xgb.r',sep=''))
