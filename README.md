@@ -23,9 +23,9 @@ If this command fails, please try installing packages one at a time, or try a di
 
 To use this package, you must clone it (using `git clone https://github.com/knights-lab/climate-trace-shipping.git`) or download a static version of it [here](https://github.com/knights-lab/climate-trace-shipping/archive/refs/heads/main.zip) and extract the files from the downloaded zip file.
 
-Finally, this package requires that the path to the package be included in your `.Renviron` file in your home directory with the environment variable name `R_CLIMATE_TRACE_SHIPPING_HOME`. This can be achieved with the following command on UNIX (Linux or Mac):
+Finally, this package requires that the path to the package be included in your `.Renviron` file in your home directory with the environment variable name `R_CLIMATE_TRACE_SHIPPING_HOME`. This can be achieved with the following command on UNIX (Linux or Mac), substituting the full path to the climate-trace-shipping repo top-level folder for `/path/to/climate-trace-shipping`:
 ```bash
-echo "R_CLIMATE_TRACE_SHIPPING_HOME='/Users/danknights/Dropbox/research/climate-trace-shipping'" >> ~/.Renviron
+echo "R_CLIMATE_TRACE_SHIPPING_HOME='/path/to/climate-trace-shipping'" >> ~/.Renviron
 ```
 
 ## Usage guide
