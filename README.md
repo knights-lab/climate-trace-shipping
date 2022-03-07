@@ -92,7 +92,7 @@ Models may be tuned, evaluated, and trained using the script, `predict_emissions
 
 1. Input data in csv format with one column containing IMO Numbers
 
-2. A ship metadata table, e.g. `IHS complete Ship Data.csv`, that contains these required training metadata fields:
+2. A ship metadata table that contains these required training metadata fields:
  - Deadweight
  - FlagName
  - GrossTonnage
