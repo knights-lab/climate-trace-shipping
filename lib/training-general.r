@@ -6,8 +6,6 @@ if(Sys.getenv('R_CLIMATE_TRACE_SHIPPING_HOME') == ''){
 CTHOME=Sys.getenv('R_CLIMATE_TRACE_SHIPPING_HOME')
 
 library("optparse", warn.conflicts = F, quietly = T)
-library('xgboost', warn.conflicts = F, quietly = T)
-#library('caret', warn.conflicts = F, quietly = T)
 library('data.table', warn.conflicts = F, quietly = T)
 source(paste(CTHOME,'/lib/rf.r',sep=''))
 source(paste(CTHOME,'/lib/xgb.r',sep=''))
@@ -47,10 +45,10 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
                                        models=c('rf','xgb','linear','ridge'),
                                        params=NULL, # by default, allow methods to choose their parameters to search
                                        individual.ids=NULL,
-                                       linear.predictor=NULL, # predictor variable for linear models
-                                       linear.categories=NULL,
+                                       linear.predictor=NULL, # name of predictor variable for linear models
+                                       linear.categories=NULL,# name of category variable for linear models
                                        skip.eval=FALSE, # skip evaluation entirely, only produce final model
-                                       final.model=TRUE, # Train a final model on all data
+                                       get.final.model=TRUE, # Train a final model on all data
                                        verbose=1
 )
 {
@@ -59,7 +57,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
     if(is.null(params)){
       stop('Cannot skip tuning/eval without providing model parameters.')
     }
-    final.model <- TRUE # automatically produce final model if skipping eval
+    get.final.model <- TRUE # automatically produce final model if skipping eval
   } 
   
   # initialize return variables
@@ -112,8 +110,8 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
           best.params[['rf']][[rep.i]] <- res$best.params
           
         } else if (models[i] == 'linear' && !is.null(linear.predictor) && !is.null(linear.categories)){
-          res.lm <- lm.by.category(linear.predictor[train.ix.i], y[train.ix.i], linear.categories[train.ix.i])
-          yhat.test <- predict.lm.by.category(res.lm$final.model,linear.predictor[-train.ix.i], linear.categories[-train.ix.i])
+          res.lm <- lm.by.category(x[train.ix.i,linear.predictor], y[train.ix.i], x[train.ix.i,linear.categories])
+          yhat.test <- predict.lm.by.category(res.lm$final.model,x[-train.ix.i,linear.predictor], x[-train.ix.i,linear.categories])
         } else if (models[i] == 'ridge'){
           # only continuous predictors for ridge regression
           ridge.predictors <- sapply(x,class) %in% c('numeric','integer')
@@ -204,7 +202,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
   
   if(verbose > 0) cat('Generating final model...\n')
   
-  if(final.model){
+  if(get.final.model){
     # if requested, train final model on all data using best params
     # Only works with one model at a time
     if(length(models) > 1) stop('Error: final model can only be requested for one model type at a time')
@@ -223,13 +221,21 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
     } else if(models[1] == 'xgb'){
       final.model <- my.xgb.cv.tune(xoh,y,params=final.params,verbose=verbose)$final.model
     } else if(models[1] == 'linear' && !is.null(linear.predictor) && !is.null(linear.categories)){
-      final.model <- lm.by.category(linear.predictor, y, linear.categories)$final.model
+      final.model <- lm.by.category(x[,linear.predictor], y, x[,linear.categories])$final.model
+      final.model$linear.predictor.name <- linear.predictor
+      final.model$linear.categories.name <- linear.categories
     } else if (models[i] == 'ridge'){
       # only continuous predictors for ridge regression
       ridge.predictors <- sapply(x,class) %in% c('numeric','integer')
       xoh.ridge <- model.matrix(~ ., data=x[,ridge.predictors,drop=F])[,-1]
       final.model <- train.ridge.by.category(xoh.ridge,y,linear.categories,verbose=verbose)$final.model
     }
+    # always include the linear final model in a final model
+    # This way other models can compare predictions to the linear
+    # as a baseline. 
+    final.model$linear.final.model <- lm.by.category(x[,linear.predictor], y, x[,linear.categories])$final.model
+    final.model$linear.final.model$linear.predictor.name <- linear.predictor
+    final.model$linear.final.model$linear.categories.name <- linear.categories
   } else{
     final.model <- NULL
   }
@@ -278,7 +284,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
     # NOT IMPLEMENTED
     # need to encode linear predictor name etc. in model
     stop('Prediction from linear-by-category model not implemented.')
-    yhat <- predict.lm.by.category(model,linear.predictor, linear.categories)
+    yhat <- predict.lm.by.category(model,x[,model$linear.predictor.name], x[,linear.categories.name])
   } else if (model.type == 'ridge'){
     # NOT IMPLEMENTED
     # need to encode linear category variable in model
@@ -286,7 +292,14 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
     ridge.predictors <- sapply(x,class) %in% c('numeric','integer')
     yhat <- predict.ridge.by.category(model,xoh.ridge,linear.categories)
   }
-  return(yhat)  
+
+  # also get linear predictions as a baseline
+  yhat.linear <- predict.lm.by.category(model$linear.final.model,
+                                        newx[,model$linear.final.model$linear.predictor.name],
+                                        newx[,model$linear.final.model$linear.categories.name])
+  results <- list(yhat = yhat,
+                  yhat.linear = yhat.linear)
+  return(results)  
 }
 
 

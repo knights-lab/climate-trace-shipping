@@ -3,6 +3,9 @@
 # to predict carbon emissions (kg) per nautical mile. Output
 # includes performance metrics and the final predictive model(s).
 #
+# Only implemented for EU-based training data with specific expected column names
+# (see help printout).
+#
 # usage:
 #
 # Default is to tune, evaluate, and train random forests, extreme gradient boosting,
@@ -38,6 +41,8 @@ option_list <- list(
               help="Name of column containing IMO Numbers [default \"%default\"]"),
   make_option(c("-m", "--metadata"), 
               help = "Ship metadata file, e.g. \"IHS complete Ship Data.csv,\" with columns IMO Numbers in column 1. [required]"),
+  make_option(c("-R", "--raw_metadata"), action="store_true", default=FALSE,
+              help = "Ship metadata file is raw, meaning requires imputing missing data, binning flagnames, etc. [default %default]"),
   make_option(c("-o", "--outdir"),
               help = "Output directory [required]"),
   make_option(c("-M", "--models"), default='rf', 
@@ -84,12 +89,12 @@ for(model in models){
 
 # check for conflict between --models and --skip_eval
 if(opt$skip_eval && length(models) > 1){
-  cat('\nStop: Cannot skip eval when evaluating multiple models.\n')  
+  stop('\nCannot skip eval when evaluating multiple models.\n')  
 }
 
 # check for conflict between --models and --skip_eval
 if(opt$skip_eval && opt$skip_final_model){
-  cat('\nStop: Cannot skip eval and skip final model.\n')  
+  stop('\nCannot skip eval and skip final model.\n')  
 }
 
 # check for conflict between --models and --skip_final_model
@@ -123,17 +128,18 @@ if(opt$load_preprocessed_data){
 } else {
   x <- load.EU.MRV.ship.data.and.metadata(ship.filepath=opt$input,
                                           metadata.filepath=opt$metadata,
+                                          raw.metadata=opt$raw_metadata,
                                           outdir=opt$outdir,
-                                          imputation.method=opt$imputation_method,
                                           verbose=opt$verbose)
   if(opt$save_preprocessed_data){
     write.csv(x,paste(opt$outdir,'/preprocessed.csv',sep=''),quote=TRUE,row.names=FALSE)
   }
 }
-predictor.names <- c("shiptype.original","deadweight","grosstonnage","length","breadth","draught","shiptype2","powerkwmax","powerkwaux","speedmax","yearbuilt","flagname.binned","flagname.continent")
 
+predictor.names <- c('Deadweight','FlagNameBin','FlagNameContinent','GrossTonnage','Length','Breadth','Draught','ShiptypeEU','ShiptypeLevel2','Powerkwmax','Powerkwaux','Speed','YearOfBuild')
+cat('WARNING\n\n\n\nWARNING< SET NTREE TO 2000\n')
 if(opt$skip_tuning || opt$skip_eval){
-  params <- list(rf=list(mtry=15, nodesize=8,ntree=2000),
+  params <- list(rf=list(mtry=15, nodesize=8,ntree=50),
                  xgb=list(nrounds=2000, eta=.01, subsample=0.75, max_depth=5))
 } else {
   params <- NULL
@@ -146,11 +152,11 @@ res <- tune.and.evaluate.models(x[,predictor.names],
                                 models=models,
                                 params=params,
                                 individual.ids=x$IMO.Number,
-                                linear.predictor=x$powerkwmax,
-                                linear.categories=x$shiptype.original,
+                                linear.predictor="Powerkwmax",
+                                linear.categories="ShiptypeEU",
                                 verbose=c(0,1)[as.numeric(opt$verbose) + 1],
                                 skip.eval = opt$skip_eval,
-                                final.model = opt$final_model
+                                get.final.model = opt$final_model
 )
 
 # save eval results

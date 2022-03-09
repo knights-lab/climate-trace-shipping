@@ -25,6 +25,8 @@ option_list <- list(
               help="Name of column containing IMO Numbers [default \"%default\"]"),
   make_option(c("-m", "--metadata"), 
               help = "Ship metadata file, e.g. \"IHS complete Ship Data.csv,\" with columns IMO Numbers in column 1. [required]"),
+  make_option(c("-R", "--raw_metadata"), action="store_true", default=FALSE,
+              help = "Ship metadata file is raw, meaning requires imputing missing data, binning flagnames, etc. [default %default]"),
   make_option(c("-M", "--model_file"), 
               help = "Predictive model in .rdata format, output of train_and_evaluate_models.r. [required]"),
   make_option(c("--imputation_method"), default='rf',
@@ -58,17 +60,13 @@ if(opt$verbose) cat('Loading ship data and metadata...\n')
 newx <- load.generic.ship.data.and.metadata(opt$input,
                                             IMO.column=opt$IMO_column,
                                             metadata.filepath=opt$metadata,
+                                            raw.metadata=opt$raw_metadata,
                                             remove.outliers=FALSE,
-                                            imputation.method=opt$imputation_method,
-                                            imputation.lookup.table=final.model.container$train.x,
                                             verbose=opt$verbose)
-
-
-
 
 if(opt$verbose) cat('Running prediction...\n')
 
-print(system.time(yhat <- predict.from.saved.model(newx,
+print(system.time(results <- predict.from.saved.model(newx,
                                                    final.model.container,
                                                    verbose=c(0,1)[as.numeric(opt$verbose) + 1]
                                                    )
@@ -78,12 +76,43 @@ print(system.time(yhat <- predict.from.saved.model(newx,
 cat('Writing predictions to',opt$output_file,'...\n')
 # load original input table, add predicted values to end
 raw.x <- read.csv(opt$input)
-# add empty prediction column
-raw.x <- cbind(raw.x,predicted.kg.CO2.per.nm=rep(0,nrow(raw.x)))
-opt$IMO_column <- gsub(' ','.', opt$IMO_column)
+# clean IMO column to ensure matching with R
+# automated column cleanup
+opt$IMO.column <- gsub(' ','.',opt$IMO.column)
+opt$IMO.column <- gsub('\\.+','.',opt$IMO.column)
+opt$IMO.column <- gsub('^\\.','',opt$IMO.column)
+opt$IMO.column <- gsub('\\.$','',opt$IMO.column)
+
+# augment x with prediction columns for model and linear model,
+# percent deviation, imputed columns, numimputed columns
+add.columns.ix <- grep('_imputed',colnames(newx))
+for(add.column.ix in add.columns.ix){
+  raw.x <- cbind(raw.x,rep(FALSE,nrow(raw.x)))
+  colnames(raw.x)[ncol(raw.x)] <- colnames(newx)[add.column.ix]
+  # add all TRUE/FALSE imputated value indicators to output table
+  raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),ncol(raw.x)] <- newx[,add.column.ix]
+  # Any rows not included in newx should be set to NA
+  # because these were not in the metadata file
+  raw.x[-match(newx$IMO.Number,raw.x[,opt$IMO_column]),ncol(raw.x)] <- NA
+}
+# add the number of imputed fields to output table
+raw.x <- cbind(raw.x,'NumImputedFields'=rep(0,nrow(raw.x)))
+raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),'NumImputedFields'] <- newx[,'NumImputedFields']
+# Any rows not included in newx should be set to NA
+# because these were not in the metadata file
+raw.x[-match(newx$IMO.Number,raw.x[,opt$IMO_column]),'NumImputedFields'] <- NA
+
+raw.x <- cbind(raw.x,
+               predicted.kg.CO2.per.nm=rep(0,nrow(raw.x)),
+               predicted.kg.CO2.per.nm.linear=rep(0,nrow(raw.x)),
+               model.vs.linear.pct.deviation=rep(0,nrow(raw.x)))
 
 # fill in predictions or NA if ship was missing from metadata
-raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),'predicted.kg.CO2.per.nm'] <- yhat
+raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),'predicted.kg.CO2.per.nm'] <- round(results$yhat,5)
 raw.x[!(raw.x[,opt$IMO_column] %in% newx$IMO.Number),'predicted.kg.CO2.per.nm'] <- NA
-write.csv(raw.x,opt$output_file, row.names=FALSE, quote=F)
+raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),'predicted.kg.CO2.per.nm.linear'] <- round(results$yhat.linear,5)
+raw.x[!(raw.x[,opt$IMO_column] %in% newx$IMO.Number),'predicted.kg.CO2.per.nm'] <- NA
+raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),'model.vs.linear.pct.deviation'] <- round((results$yhat - results$yhat.linear) / results$yhat.linear,5)
+raw.x[!(raw.x[,opt$IMO_column] %in% newx$IMO.Number),'model.vs.linear.pct.deviation'] <- NA
+write.csv(raw.x,opt$output_file, row.names=FALSE, quote=T)
 

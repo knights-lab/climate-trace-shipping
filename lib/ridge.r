@@ -2,6 +2,10 @@
 # result has "final.model" which contains a list "models" of 
 # ridge models indexed by category levels and a string "category" name
 "train.ridge.by.category" <- function(x,y,category, verbose=0){
+  # moved 'caret' loading here because it has been difficult to 
+  # install on some systems
+  library('caret', warn.conflicts = F, quietly = T)
+  
   results <- list()
   final.model <- list()
   final.model$models <- list()

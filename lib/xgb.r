@@ -14,6 +14,10 @@ library('xgboost', warn.conflicts = F, quietly = T)
                         nrounds=c(10,20),
                         params=NULL,
                         verbose=0) {
+  # only load xgboost if needed for xgb
+  # this is for faster runtime
+  # and fewer dependencies for basic use case
+  library('xgboost', warn.conflicts = F, quietly = T)
   
   # https://www.r-bloggers.com/2020/11/r-xgboost-regression/
   #create hyperparameter grid
