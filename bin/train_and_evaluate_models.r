@@ -57,10 +57,6 @@ option_list <- list(
               help="Skip training final model. Otherwise, final model will be saved to <outdir>/final_model.rdata. Required when evaluating multiple models. [default %default]"),
   make_option(c("--imputation_method"), default='rf',
               help="Imputation method: quick (median/mode) or rf (much more accurate but very slow) [default \"%default\"]"),
-  make_option(c("--save_preprocessed_data"), action="store_true", default=FALSE,
-              help="Save preprocessed data file. This can be useful when you want to want to rerun training but don't want to rerun imputation of missing values. File will be saved to <outdir>/preprocessed.csv [default \"%default\"]"),
-  make_option(c("--load_preprocessed_data"), action="store_true", default=FALSE,
-              help="Load preprocessed data file. This means that the input data file needs no preprocessing or imputation and is ready for model training. [default \"%default\"]"),
   make_option(c("-v", "--verbose"), action="store_true", default=FALSE,
               help="Verbose output [default %default]")
 )
@@ -123,18 +119,11 @@ dir.create(opt$outdir,showWarnings = FALSE)
 
 # load data (can comment this out if loaded to save time)
 if(opt$verbose) cat('Loading ship data and metadata...\n')
-if(opt$load_preprocessed_data){
-  x <- read.csv(opt$input)
-} else {
-  x <- load.EU.MRV.ship.data.and.metadata(ship.filepath=opt$input,
-                                          metadata.filepath=opt$metadata,
-                                          raw.metadata=opt$raw_metadata,
-                                          outdir=opt$outdir,
-                                          verbose=opt$verbose)
-  if(opt$save_preprocessed_data){
-    write.csv(x,paste(opt$outdir,'/preprocessed.csv',sep=''),quote=TRUE,row.names=FALSE)
-  }
-}
+x <- load.EU.MRV.ship.data.and.metadata(ship.filepath=opt$input,
+                                        metadata.filepath=opt$metadata,
+                                        raw.metadata=opt$raw_metadata,
+                                        outdir=opt$outdir,
+                                        verbose=opt$verbose)
 
 predictor.names <- c('Deadweight','FlagNameBin','FlagNameContinent','GrossTonnage','Length','Breadth','Draught','ShiptypeEU','ShiptypeLevel2','Powerkwmax','Powerkwaux','Speed','YearOfBuild')
 cat('WARNING\n\n\n\nWARNING< SET NTREE TO 2000\n')
