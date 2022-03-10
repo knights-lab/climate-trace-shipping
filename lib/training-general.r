@@ -41,6 +41,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
 # train.ix = lists of vectors of train indices
 "tune.and.evaluate.models" <- function(x,y,
                                        nreps=5, # number of train/test splits
+                                       outdir='.',
                                        test.fraction=1/3, # fraction in test sets
                                        models=c('rf','xgb','linear','ridge'),
                                        params=NULL, # by default, allow methods to choose their parameters to search
@@ -49,6 +50,7 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
                                        linear.categories=NULL,# name of category variable for linear models
                                        skip.eval=FALSE, # skip evaluation entirely, only produce final model
                                        get.final.model=TRUE, # Train a final model on all data
+                                       make.plots=TRUE,
                                        verbose=1
 )
 {
@@ -130,63 +132,74 @@ source(paste(CTHOME,'/lib/ridge.r',sep=''))
         
         if(verbose > 0) cat('NRMSE =',rmses[i,rep.i],'MAE =',maes[i,rep.i],'\n')
         
-        if(FALSE){
+        if(make.plots){
+          dir.create(outdir,showWarnings = FALSE)
+          
           # TO DO: add optional visualizations of feature importance
           # and obs vs expected scatterplots; example code below.
           # importance calculations
-          importance_matrix <- xgb.importance(model = res.xgb$final.model)
-          importance_matrix <- importance_matrix[1:min(10,max(min(nrow(importance_matrix),10),which(importance_matrix$Gain > 0.001))),drop=F]
-          feature.names <- importance_matrix$Feature
-          importance_matrix <- as.matrix(importance_matrix[,-1])
-          rownames(importance_matrix) <- feature.names
-          print(cbind(res.xgb$rmses,res.xgb$hyper.grid)[order(res.xgb$rmses),])
+
+          if(models[i] == 'rf'){
+            # make two importance plots, top 10 and top 20 features
+            importance_matrix <- res$final.model$importance
+            
+            # save the full importance scores for all features
+            write.csv(importance_matrix,file=sprintf('%s/importance_matrix.csv',outdir),row.names=TRUE,quote=FALSE)
+            
+            importance_matrix <- importance_matrix[order(importance_matrix[,'IncNodePurity'],decreasing=TRUE),,drop=F][1:(min(20,nrow(importance_matrix))),,drop=F]
           
-          pdf(sprintf('output/xgb-importance-%s.pdf',task),width=5, height=5)
-          par(mar=c(5,10,2,2))
-          barplot(importance_matrix[nrow(importance_matrix):1,'Gain'],
-                  names.arg=rownames(importance_matrix)[nrow(importance_matrix):1],
-                  horiz=TRUE,
-                  las=2,xlab = "XBG tree gain",
-                  cex.axis=.7,
-                  cex.names=.7,
-                  main="XBG Feature Importance",
-                  cex.main=1)
-          dev.off()
           
-          importance_matrix <- res.rf$final.model$importance
-          importance_matrix <- importance_matrix[order(importance_matrix[,'IncNodePurity'],decreasing=TRUE),,drop=F][1:(min(10,nrow(importance_matrix))),,drop=F]
-          
-          pdf(sprintf('output/rf-importance-%s.pdf',task),width=5, height=5)
-          par(mar=c(5,10,2,2))
-          barplot(importance_matrix[nrow(importance_matrix):1,1],
-                  names.arg=rownames(importance_matrix)[nrow(importance_matrix):1],
-                  horiz=TRUE,
-                  las=2,xlab = "RF Increase in Node Purity",
-                  cex.axis=.7,
-                  cex.names=.7,
-                  main="RF Feature Importance",
-                  cex.main=1)
-          dev.off()
-          
-          # plot scatterplot
-          pdf(sprintf('output/xgb-%s.pdf',task),width=5, height=5)
-          axis.lims <- range(c(y.test,yhat.test))
-          plot(y.test,yhat.test,pch=21,col=NA,bg='#00000011',main=sprintf('XGB Test \n(NRMSE %0.3f, MAE %0.1f)',nrmse, mae),las=2,cex.axis=.75,xlim=axis.lims,ylim=axis.lims,xlab='Reported kg CO2/nm',ylab='Predicted kg CO2/nm'); abline(0,1)
-          dev.off()
-          
-          pdf(sprintf('output/xgb-mae-by-shiptype-%s.pdf',task), width=7,height=5)
-          par(mar=c(7.1, 4.1, 4.1, 2.1))
-          abs.pct.err <- abs(y.test-yhat.test)/y.test
-          boxplot(100*abs.pct.err ~ x[rowix,,drop=F][-train.ix.i,'shiptype3'],las=2,cex.axis=.5, ylab='Absolute percent error')
-          dev.off()
-          
-          # plot per-category linear fits
-          pdf(sprintf('output/lm.scatterplots.by.shiptype-%s.pdf',task),width=9,height=7)
-          plot.lm.by.category(x$deadweight[rowix], x$kg.CO2.per.nm[rowix], x$shiptype.original[rowix])
-          dev.off()
-          
+            pdf(sprintf('%s/rf-importance-top-20.pdf',outdir),width=5, height=5)
+            par(mar=c(5,10,2,2))
+            barplot(importance_matrix[nrow(importance_matrix):1,1],
+                    names.arg=rownames(importance_matrix)[nrow(importance_matrix):1],
+                    horiz=TRUE,
+                    las=2,xlab = "RF Increase in Node Purity",
+                    cex.axis=.7,
+                    cex.names=.7,
+                    main="RF Feature Importance",
+                    cex.main=1)
+            dev.off()
+
+            
+            # plot scatterplot
+            pdf(sprintf('%s/scatterplot-rf.pdf',outdir),width=5, height=5)
+            axis.lims <- range(c(y.test,yhat.test))
+            nrmse <- rmses[models[i],rep.i]
+            mae <- maes[models[i],rep.i]
+            plot(y.test,yhat.test,pch=21,col=NA,bg='#00000011',main=sprintf('RF Test \n(NRMSE %0.3f, MAE %0.1f)',nrmse, mae),las=2,cex.axis=.75,xlim=axis.lims,ylim=axis.lims,xlab='Reported kg CO2/nm',ylab='Predicted kg CO2/nm'); abline(0,1)
+            dev.off()
+            
+          # importance_matrix <- xgb.importance(model = res.xgb$final.model)
+          # importance_matrix <- importance_matrix[1:min(10,max(min(nrow(importance_matrix),10),which(importance_matrix$Gain > 0.001))),drop=F]
+          # feature.names <- importance_matrix$Feature
+          # importance_matrix <- as.matrix(importance_matrix[,-1])
+          # rownames(importance_matrix) <- feature.names
+          # print(cbind(res.xgb$rmses,res.xgb$hyper.grid)[order(res.xgb$rmses),])
+          # 
+          # pdf(sprintf('output/xgb-importance-%s.pdf',task),width=5, height=5)
+          # par(mar=c(5,10,2,2))
+          # barplot(importance_matrix[nrow(importance_matrix):1,'Gain'],
+          #         names.arg=rownames(importance_matrix)[nrow(importance_matrix):1],
+          #         horiz=TRUE,
+          #         las=2,xlab = "XBG tree gain",
+          #         cex.axis=.7,
+          #         cex.names=.7,
+          #         main="XBG Feature Importance",
+          #         cex.main=1)
+          # dev.off()
+          # pdf(sprintf('output/xgb-mae-by-shiptype-%s.pdf',task), width=7,height=5)
+          # par(mar=c(7.1, 4.1, 4.1, 2.1))
+          # abs.pct.err <- abs(y.test-yhat.test)/y.test
+          # boxplot(100*abs.pct.err ~ x[rowix,,drop=F][-train.ix.i,'shiptype3'],las=2,cex.axis=.5, ylab='Absolute percent error')
+          # dev.off()
+          # 
+          # # plot per-category linear fits
+          # pdf(sprintf('output/lm.scatterplots.by.shiptype-%s.pdf',task),width=9,height=7)
+          # plot.lm.by.category(x$deadweight[rowix], x$kg.CO2.per.nm[rowix], x$shiptype.original[rowix])
+          # dev.off()
+          }
         }
-        
       }
     }
   } else {

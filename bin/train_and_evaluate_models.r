@@ -68,11 +68,6 @@ if(any(!(required.opts %in% names(opt)))){
   stop(sprintf('One or more of these required parameters is missing: %s.\n\n', paste(required.opts,collapse=', ')))
 }
 
-
-if(any(!(required.opts %in% names(opt)))){
-  stop(sprintf('One or more of these required parameters is missing: %s.\n\n', paste(required.opts,collapse=', ')))
-}
-
 # check models list for validity
 models <- strsplit(opt$models,',')[[1]]
 for(model in models){
@@ -126,9 +121,9 @@ x <- load.EU.MRV.ship.data.and.metadata(ship.filepath=opt$input,
                                         verbose=opt$verbose)
 
 predictor.names <- c('Deadweight','FlagNameBin','FlagNameContinent','GrossTonnage','Length','Breadth','Draught','ShiptypeEU','ShiptypeLevel2','Powerkwmax','Powerkwaux','Speed','YearOfBuild')
-cat('WARNING\n\n\n\nWARNING< SET NTREE TO 2000\n')
+
 if(opt$skip_tuning || opt$skip_eval){
-  params <- list(rf=list(mtry=15, nodesize=8,ntree=50),
+  params <- list(rf=list(mtry=15, nodesize=8,ntree=2000),
                  xgb=list(nrounds=2000, eta=.01, subsample=0.75, max_depth=5))
 } else {
   params <- NULL
@@ -138,6 +133,7 @@ if(opt$verbose) cat('Running tuning and evaluation...\n')
 res <- tune.and.evaluate.models(x[,predictor.names],
                                 x$kg.CO2.per.nm,
                                 nreps=opt$repeats,
+                                outdir=opt$outdir,
                                 models=models,
                                 params=params,
                                 individual.ids=x$IMO.Number,
@@ -156,6 +152,14 @@ if(!opt$skip_eval){
   # write results to .csv file
   write.csv(res$rmses, paste(opt$outdir,'/rmse.csv',sep=''), row.names = TRUE, quote=F)
   write.csv(res$maes, paste(opt$outdir,'/mae.csv',sep=''), row.names = TRUE, quote=F)
+  
+  pdf(paste(opt$outdir,'/boxplot-model-comparison-NRMSE.pdf',sep=''),width=5,height=5)
+  boxplot(t(res$rmses),main='Normalized RMSE',cex.main=1,las=2)
+  dev.off()
+
+  pdf(paste(opt$outdir,'/boxplot-model-comparison-MAE.pdf',sep=''),width=5,height=5)
+  boxplot(t(res$maes),main='Mean absolute percent error',cex.main=1,las=2)
+  dev.off()
   
   # write summary of execution parameters and performance
   sink(paste(opt$outdir,'/summary.txt',sep=''))
