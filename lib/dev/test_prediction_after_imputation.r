@@ -1,5 +1,5 @@
 CTHOME=Sys.getenv('R_CLIMATE_TRACE_SHIPPING_HOME')
-source(paste(CTHOME,'/lib/lib.r',sep=''))
+source(paste(CTHOME,'/lib/load.r',sep=''))
 source(paste(CTHOME,'/lib/rf.r',sep=''))
 
 ######### 
