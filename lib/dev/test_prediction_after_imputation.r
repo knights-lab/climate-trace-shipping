@@ -1,5 +1,6 @@
-source("~/Dropbox/research/climate-trace-shipping/lib/load.r")
-source("~/Dropbox/research/climate-trace-shipping/lib/rf.r")
+CTHOME=Sys.getenv('R_CLIMATE_TRACE_SHIPPING_HOME')
+source(paste(CTHOME,'/lib/lib.r',sep=''))
+source(paste(CTHOME,'/lib/rf.r',sep=''))
 
 ######### 
 # Run with 1 missing feature per sample
