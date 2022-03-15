@@ -206,7 +206,7 @@ FLAGNAMES.CONTINENT.MAP <- tmp
                                                   remove.outliers=TRUE, # disable for predictions on new data
                                                   verbose=TRUE
 ){
-  x <- read.csv(ship.filepath)
+  x <- read.csv(ship.filepath,stringsAsFactors=FALSE)
   
   # replace spaces with "." in the provided IMO.column string,
   # to match the auto-replacement in read.csv
@@ -296,7 +296,7 @@ FLAGNAMES.CONTINENT.MAP <- tmp
 "load.raw.ship.metadata" <- function(filepath=paste(CTHOME,'/data/IHS complete Ship Data.csv',sep=''),
                                  check_valid=TRUE
 ){
-  m <- read.csv(filepath,row.names=1)
+  m <- read.csv(filepath,row.names=1,stringsAsFactors=FALSE)
   if(check_valid){
     expected.columns <- c('Deadweight','FlagName','GrossTonnage','LengthOverallLOA','LengthRegistered','Breadth','Draught','ShiptypeLevel2','ShiptypeLevel3','ShiptypeLevel4','Powerkwmax','TotalPowerOfAuxiliaryEngines','Speedmax', 'Speed','YearOfBuild')
     if(any(!(expected.columns %in% colnames(m)))){
@@ -310,7 +310,7 @@ FLAGNAMES.CONTINENT.MAP <- tmp
 "load.preprocessed.ship.metadata" <- function(filepath=paste(CTHOME,'/data/IHS-imputed-rf.csv',sep=''),
                                      check_valid=TRUE
 ){
-  m <- read.csv(filepath,row.names=1)
+  m <- read.csv(filepath,row.names=1,stringsAsFactors=FALSE)
   if(check_valid){
     expected.columns <- c('Deadweight','FlagNameBin','FlagNameContinent','GrossTonnage','Length','Breadth','Draught','ShiptypeEU','ShiptypeLevel2','Powerkwmax','Powerkwaux','Speed','YearOfBuild')
     if(any(!(expected.columns %in% colnames(m)))){
@@ -326,7 +326,7 @@ FLAGNAMES.CONTINENT.MAP <- tmp
 "load.EU.MRV.ship.data" <- function(filepath=paste(CTHOME,'/data/EU MRV data 18-19-20.csv',sep=''),
                                     verbose=1){
   # read CSV
-  x <- read.csv(filepath)
+  x <- read.csv(filepath,stringsAsFactors=FALSE)
   if(verbose > 0) cat('Raw data:',nrow(x),'unique entries\n')
   
   # to deal with special characters, replace all non-alphanumerics
@@ -436,10 +436,10 @@ FLAGNAMES.CONTINENT.MAP <- tmp
   x$ShiptypeEU <- x$shiptype.original
 
   # ensure eu-specific vars are numeric
-  x[,"distance.traveled"] <- suppressWarnings(as.numeric(x[,"distance.traveled"]))
-  x[,"average.speed"] <- suppressWarnings(as.numeric(x[,"average.speed"]))
-  x[,"time.at.sea"] <- suppressWarnings(as.numeric(x[,"time.at.sea"]))
-  x[,"kg.CO2.per.nm"] <- suppressWarnings(as.numeric(x[,"kg.CO2.per.nm"]))
+  x[,"distance.traveled"] <- suppressWarnings(as.numeric(as.character(x[,"distance.traveled"])))
+  x[,"average.speed"] <- suppressWarnings(as.numeric(as.character(x[,"average.speed"])))
+  x[,"time.at.sea"] <- suppressWarnings(as.numeric(as.character(x[,"time.at.sea"])))
+  x[,"kg.CO2.per.nm"] <- suppressWarnings(as.numeric(as.character(x[,"kg.CO2.per.nm"])))
 
   # Drop NA/known bad values
   for(i in 1:length(positive.vars)){
@@ -529,6 +529,8 @@ preprocess.ship.metadata <- function(metadata.filepath=paste(CTHOME,'/data/IHS c
                                          'Speed',
                                          'YearOfBuild'),
                                      imputation.method=c('kNN','rf','quick','none')[2],
+				     rf.imputation.nreps=20,
+				     rf.imputation.maxit=2,
                                      outlier.IQR.threshold = 3, # IQR multiplier m for boxplot outlier test
                                      verbose=0){
   
@@ -537,7 +539,7 @@ preprocess.ship.metadata <- function(metadata.filepath=paste(CTHOME,'/data/IHS c
   
   # Read input table
   if(verbose > 0) cat('Reading metadata table...\n')
-  map <- read.csv(metadata.filepath,row.names=1)
+  map <- read.csv(metadata.filepath,row.names=1,stringsAsFactors=FALSE)
   if(verbose > 0) cat('Read',nrow(map),'rows.\n')
   
   # rename very long column name
@@ -675,8 +677,8 @@ preprocess.ship.metadata <- function(metadata.filepath=paste(CTHOME,'/data/IHS c
         }
       }
     } else if(imputation.method == 'rf'){
-      nreps <- 20 # chose these values using results from  lib/dev/test_imputation_methods.r 
-      maxit <- 2
+      nreps <- rf.imputation.nreps # chose these values using results from  lib/dev/test_imputation_methods.r 
+      maxit <- rf.imputation.maxit
       if(verbose > 0) cat('Running "rf" imputation of missing values, this can be slow...\n')
       # run MICE package imputation 20 times
       # note: this is slow for large data sets

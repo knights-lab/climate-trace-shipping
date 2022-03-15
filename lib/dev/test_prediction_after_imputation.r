@@ -6,6 +6,11 @@ source(paste(CTHOME,'/lib/rf.r',sep=''))
 # Run with 1 missing feature per sample
 #########
 nreps <- 3 # each rep takes hours
+n.missing <- c(2,3,4,5,6)
+imputation.method='rf' # standard is rf
+rf.imputation.nreps=10 # standard is 20
+rf.imputation.maxit=2 # standard is 2
+ntree <- 100 # standard is 100 or 1000 (full models are 2000)
 
 # for each numeric predictor, set 3000 random rows to NA
 cat('Choosing random indices...\n')
@@ -20,16 +25,15 @@ for(rep.i in 1:nreps){
   m <- load.raw.ship.metadata()
   cat('Loading EU ship data...\n')
   x.eu <- load.EU.MRV.ship.data()
-  
   x.eu$IMO.Number <- as.character(x.eu$IMO.Number)
   x.eu <- x.eu[x.eu$IMO.Number %in% rownames(m),]
-  eu.ix <- match(x.eu$IMO.Number, rownames(m))
   
   ix.fake.missing <- list()
   random.ix <- sample(nrow(x.eu))
   count <- 1
-  batch.size <- 3000
+
   # set to NA and store those indices
+  batch.size <- min(3000,round(1/8 * nrow(x.eu)))
   for(numeric.var in numeric.vars){
     random.ix.i <- random.ix[count:(count + batch.size - 1)]
     ix.fake.missing[[numeric.var]] <- random.ix.i
@@ -45,6 +49,7 @@ for(rep.i in 1:nreps){
     }
     count <- count + batch.size
   }
+
   
   cat('Saving raw metadata with fake missing data...\n')
   write.csv(m, file='metadata.fake.missing.data.csv',quote=TRUE,row.names=TRUE)
@@ -53,18 +58,19 @@ for(rep.i in 1:nreps){
   cat('Running imputation...\n')
   m.post <- preprocess.ship.metadata('metadata.fake.missing.data.csv',
                                      metadata.output.filepath = 'metadata.fake.missing.data-impute-rf.csv',
-                                     imputation.method = 'rf')
+                                     imputation.method = imputation.method,
+				     rf.imputation.nreps=rf.imputation.nreps,
+				     rf.imputation.maxit=rf.imputation.maxit)
   
   # add data to EU table
   cat('Adding imputed metadata to EU data...\n')
   x.eu.imputed <- load.EU.MRV.ship.data.and.metadata(metadata.filepath='metadata.fake.missing.data-impute-rf.csv')
-  
+    
   # train RF and get OOB predictions
   predictor.names <- c('Deadweight','FlagNameBin','FlagNameContinent','GrossTonnage','Length','Breadth','Draught','ShiptypeEU','ShiptypeLevel2','Powerkwmax','Powerkwaux','Speed','YearOfBuild')
   xoh <- model.matrix(~ ., data=x.eu.imputed[,predictor.names])[,-1]
   y <- x.eu.imputed$kg.CO2.per.nm
-  cat('Running rf...\n')
-  my.rf <- my.rf.tune(xoh,y,params=list(mtry=15, nodesize=8,ntree=1000))
+  my.rf <- my.rf.tune(xoh,y,params=list(mtry=15, nodesize=8,ntree=ntree))
   yhat <- my.rf$yhat
   
   cat('Reporting performance...\n')
@@ -82,20 +88,16 @@ for(rep.i in 1:nreps){
 ######### 
 # Run with 2, 3, 4, 5 missing features per sample
 #########
-n.missing <- c(2,3,4,5,6)
-nreps <- 3 # each rep takes hours
 
 # for roughly 1/3 of samples (10k), set n.missing[j] random features to NA
 cat('Choosing random indices...\n')
 numeric.vars <- c('Deadweight','GrossTonnage','Length','Breadth','Draught','Powerkwmax','Powerkwaux','Speed')
-mae.n.missing <- list()
-  
+mae.n.missing <- matrix(0,nr=n.missing, nc=nreps)
+rownames(mae.n.missing) <- sprintf('%02d.missing',n.missing)
+colnames(mae.n.missing) <- sprintf('rep%02d',1:nreps)
+
 for(rep.i in 1:nreps){
-  for(j in (1:length(n.missing))[1:3]){
-    if(rep.i == 1){
-      mae.n.missing[[j]] <- numeric(nreps)
-      names(mae.n.missing)[j] <- sprintf('%d_missing',n.missing[j])
-    }
+  for(j in (1:length(n.missing))){
     cat('\n\nMissing',n.missing[j],'REP',rep.i,'\n\n')
     cat('Loading raw ship metadata...\n')
     m <- load.raw.ship.metadata()
@@ -103,11 +105,10 @@ for(rep.i in 1:nreps){
     x.eu <- load.EU.MRV.ship.data()
     x.eu$IMO.Number <- as.character(x.eu$IMO.Number)
     x.eu <- x.eu[x.eu$IMO.Number %in% rownames(m),]
-    eu.ix <- match(x.eu$IMO.Number, rownames(m))
     
     ix.fake.missing <- list()
     random.ix <- sample(nrow(x.eu))
-    batch.size <- 10000
+    batch.size <- min(10000,round(1/3 * nrow(x.eu)))
     # get indices in m ahead of time
     random.ix.in.m <- match(x.eu$IMO.Number[random.ix[1:batch.size]],rownames(m))
     
@@ -133,13 +134,14 @@ for(rep.i in 1:nreps){
     cat('\n')
     cat('Saving raw metadata with fake missing data...\n')
     write.csv(m, file='metadata.fake.missing.data.csv',quote=TRUE,row.names=TRUE)
-    
+
     # impute
     cat('Running imputation...\n')
     m.post <- preprocess.ship.metadata('metadata.fake.missing.data.csv',
                                        metadata.output.filepath = 'metadata.fake.missing.data-impute-rf.csv',
-                                       imputation.method = 'rf')
-    
+                                       imputation.method = imputation.method,
+				       rf.imputation.nreps=rf.imputation.nreps,
+				       rf.imputation.maxit=rf.imputation.maxit)
     # add data to EU table
     cat('Adding imputed metadata to EU data...\n')
     x.eu.imputed <- load.EU.MRV.ship.data.and.metadata(metadata.filepath='metadata.fake.missing.data-impute-rf.csv')
@@ -149,7 +151,7 @@ for(rep.i in 1:nreps){
     xoh <- model.matrix(~ ., data=x.eu.imputed[,predictor.names])[,-1]
     y <- x.eu.imputed$kg.CO2.per.nm
     cat('Running rf...\n')
-    my.rf <- my.rf.tune(xoh,y,params=list(mtry=15, nodesize=8,ntree=1000))
+    my.rf <- my.rf.tune(xoh,y,params=list(mtry=15, nodesize=8,ntree=ntree))
     yhat <- my.rf$yhat
     
     cat('Reporting performance...\n')
@@ -157,12 +159,11 @@ for(rep.i in 1:nreps){
     new.ix <- match(imo.numbers, x.eu.imputed$IMO.Number)
     new.ix <- new.ix[!is.na(new.ix)]
     mae <- mean(abs(yhat[new.ix] - y[new.ix])/y[new.ix],na.rm=TRUE)
-    mae.n.missing[[j]][rep.i] <- mae
+    mae.n.missing[j,rep.i] <- mae
     cat(n.missing[j],'missing, rep',rep.i,':',mae,'\n')
   }
 }
 
-stop('hi\n')
 
 #####
 # Now run with no fake missing data; only impute naturally missing powerkwaux
@@ -183,7 +184,7 @@ for(rep.i in 1:nreps){
   xoh <- model.matrix(~ ., data=x.eu.imputed[,predictor.names])[,-1]
   y <- x.eu.imputed$kg.CO2.per.nm
   cat('Running rf...\n')
-  my.rf <- my.rf.tune(xoh,y,params=list(mtry=15, nodesize=8,ntree=1000))
+  my.rf <- my.rf.tune(xoh,y,params=list(mtry=15, nodesize=8,ntree=ntree))
   yhat <- my.rf$yhat
   mae <- mean(abs(yhat - y)/y,na.rm=TRUE)
   mae.none.missing[rep.i] <- mae
