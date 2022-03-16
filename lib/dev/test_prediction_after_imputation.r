@@ -92,7 +92,7 @@ for(rep.i in 1:nreps){
 # for roughly 1/3 of samples (10k), set n.missing[j] random features to NA
 cat('Choosing random indices...\n')
 numeric.vars <- c('Deadweight','GrossTonnage','Length','Breadth','Draught','Powerkwmax','Powerkwaux','Speed')
-mae.n.missing <- matrix(0,nr=n.missing, nc=nreps)
+mae.n.missing <- matrix(0,nr=length(n.missing), nc=nreps)
 rownames(mae.n.missing) <- sprintf('%02d.missing',n.missing)
 colnames(mae.n.missing) <- sprintf('rep%02d',1:nreps)
 
