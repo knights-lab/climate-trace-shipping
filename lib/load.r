@@ -375,6 +375,8 @@ FLAGNAMES.CONTINENT.MAP <- tmp
   # Drop ships missing from metadata file
   # convert IMO number to string so that it can be used for indexing
   x$IMO.Number <- as.character(x$IMO.Number)
+  if(verbose > 0) cat(length(unique(x$IMO.Number)),'unique ships present in raw data.\n')
+  
   drop.ix <- which(!(x$IMO.Number %in% rownames(map)))
   if(length(drop.ix) > 0){
     x <- x[-drop.ix,,drop=F]
