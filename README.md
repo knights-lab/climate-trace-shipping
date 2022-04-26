@@ -113,7 +113,7 @@ Models may be tuned, evaluated, and trained using the script, `predict_emissions
  - Speed
  - YearOfBuild
 
-3. A final predictive model generated using the script `train_and_evaluate_models.r` as described above.
+3. A final predictive model generated using the script `train_and_evaluate_models.r` as described above. A fully trained random forests model is available [here](https://www.dropbox.com/s/fud5dss8dg7b6qx/final_model_v2.rdata?dl=1).
 
 View script usage instructions with
 ```bash
