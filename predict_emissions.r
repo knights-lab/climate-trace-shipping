@@ -91,9 +91,7 @@ for(add.column.ix in add.columns.ix){
   raw.x <- cbind(raw.x,rep(FALSE,nrow(raw.x)))
   colnames(raw.x)[ncol(raw.x)] <- colnames(newx)[add.column.ix]
   # add all TRUE/FALSE imputated value indicators to output table
-  print("TEST1")
   raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),ncol(raw.x)] <- newx[,add.column.ix]
-  print("TEST2")
   
   # Any rows not included in newx should be set to NA
   # because these were not in the metadata file
