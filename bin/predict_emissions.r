@@ -78,19 +78,21 @@ cat('Writing predictions to',opt$output_file,'...\n')
 raw.x <- read.csv(opt$input)
 # clean IMO column to ensure matching with R
 # automated column cleanup
-opt$IMO.column <- gsub(' ','.',opt$IMO.column)
-opt$IMO.column <- gsub('\\.+','.',opt$IMO.column)
-opt$IMO.column <- gsub('^\\.','',opt$IMO.column)
-opt$IMO.column <- gsub('\\.$','',opt$IMO.column)
+opt$IMO_column <- gsub(' ','.',opt$IMO_column)
+opt$IMO_column <- gsub('\\.+','.',opt$IMO_column)
+opt$IMO_column <- gsub('^\\.','',opt$IMO_column)
+opt$IMO_column <- gsub('\\.$','',opt$IMO_column)
 
 # augment x with prediction columns for model and linear model,
 # percent deviation, imputed columns, numimputed columns
 add.columns.ix <- grep('_imputed',colnames(newx))
+print(colnames(raw.x))
 for(add.column.ix in add.columns.ix){
   raw.x <- cbind(raw.x,rep(FALSE,nrow(raw.x)))
   colnames(raw.x)[ncol(raw.x)] <- colnames(newx)[add.column.ix]
   # add all TRUE/FALSE imputated value indicators to output table
   raw.x[match(newx$IMO.Number,raw.x[,opt$IMO_column]),ncol(raw.x)] <- newx[,add.column.ix]
+  
   # Any rows not included in newx should be set to NA
   # because these were not in the metadata file
   raw.x[-match(newx$IMO.Number,raw.x[,opt$IMO_column]),ncol(raw.x)] <- NA
