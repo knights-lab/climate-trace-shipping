@@ -1,2 +1,2 @@
-# source data
-Source data not included in repo at this time.
+# Database of global predictions
+The file [database.csv](database.csv) contains the LGBM-predicted per-ship fuel efficiency (in kilograms of CO2 per nautical mile) for all ships for which metadata were available at the start of our analysis (2019). These estimates are for the average fuel efficiency across all voyages in a given year. The predicted values are expected to have the accuracy reported in our manuscript. 
